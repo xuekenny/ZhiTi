@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import {
   Database,
   Eye,
   EyeOff,
   FolderOpen,
+  Languages,
+  ListRestart,
   Loader2,
   PlugZap,
   Save,
@@ -14,12 +16,15 @@ import {
 import { isTauri } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import AppModal from '../components/AppModal.vue'
+import ModelPicker from '../components/ModelPicker.vue'
 import { reloadStore, saveSettings, state, ui } from '../store'
 import { db } from '../db'
-import { PROVIDER_PRESETS, testConnection } from '../utils/ai'
+import { PROVIDER_PRESETS, listModels, testConnection } from '../utils/ai'
+import type { AiSettings } from '../types'
 import { disposeAllSources } from '../utils/source'
 import { changeDataDir, getStorageState, openDataDir } from '../utils/storage'
 import { toast } from '../composables/toast'
+import { LOCALES, locale, setLocale, t, type Locale } from '../i18n'
 
 const desktop = isTauri()
 const ai = reactive({ ...state.settings.ai })
@@ -31,27 +36,55 @@ const pendingDir = ref('')
 const applyingDir = ref(false)
 const confirmClear = ref(false)
 
-const providerOptions: { key: 'deepseek' | 'qwen' | 'custom'; label: string }[] = [
-  { key: 'deepseek', label: 'DeepSeek' },
-  { key: 'qwen', label: '通义千问' },
-  { key: 'custom', label: '自定义（OpenAI 兼容）' }
-]
+const providerKeys: AiSettings['provider'][] = ['moerouter', 'deepseek', 'qwen', 'custom']
+
+const preset = computed(() => (ai.provider === 'custom' ? null : PROVIDER_PRESETS[ai.provider]))
+/** 从接口拉取到的模型列表，按服务商分别缓存 */
+const fetchedModels = reactive<Partial<Record<AiSettings['provider'], string[]>>>({})
+const loadingModels = ref(false)
+const modelOptions = computed(() => fetchedModels[ai.provider] ?? preset.value?.models ?? [])
+
+const errorText = (error: unknown) => (error as Error)?.message || t('common.unknownError')
 
 function onProviderChange() {
-  if (ai.provider === 'custom') return
-  const preset = PROVIDER_PRESETS[ai.provider]
-  ai.baseUrl = preset.baseUrl
-  ai.model = preset.model
-  ai.visionModel = preset.visionModel
+  if (!preset.value) return
+  ai.baseUrl = preset.value.baseUrl
+  ai.model = preset.value.model
+  ai.visionModel = preset.value.visionModel
+}
+
+function onLocaleChange(event: Event) {
+  setLocale((event.target as HTMLSelectElement).value as Locale)
+}
+
+async function fetchModels() {
+  if (!ai.apiKey.trim()) {
+    toast(t('settings.ai.needKey'), 'warning')
+    return
+  }
+  loadingModels.value = true
+  try {
+    const models = await listModels({ baseUrl: ai.baseUrl, apiKey: ai.apiKey.trim() })
+    if (!models.length) {
+      toast(t('settings.ai.noModels'), 'warning')
+      return
+    }
+    fetchedModels[ai.provider] = models
+    toast(t('settings.ai.modelsFetched', { n: models.length }), 'success')
+  } catch (error) {
+    toast((error as Error).message || t('settings.ai.modelsFetchFailed'), 'error', 5600)
+  } finally {
+    loadingModels.value = false
+  }
 }
 
 async function saveAll() {
   saving.value = true
   try {
     await saveSettings({ ai: { ...ai } })
-    toast('设置已保存到本地', 'success')
+    toast(t('settings.ai.saved'), 'success')
   } catch (error) {
-    toast('保存失败：' + ((error as Error).message || '未知错误'), 'error')
+    toast(t('settings.ai.saveFailed', { error: errorText(error) }), 'error')
   } finally {
     saving.value = false
   }
@@ -59,29 +92,26 @@ async function saveAll() {
 
 async function runTest() {
   if (!ai.apiKey.trim()) {
-    toast('请先填写 API 密钥', 'warning')
+    toast(t('settings.ai.needKey'), 'warning')
     return
   }
   testing.value = true
   try {
     const reply = await testConnection({ ...ai })
-    toast(`连接成功：${reply.slice(0, 40)}`, 'success', 4200)
+    toast(t('settings.ai.connected', { reply: reply.slice(0, 40) }), 'success', 4200)
   } catch (error) {
-    toast((error as Error).message || '连接失败', 'error', 5600)
+    toast((error as Error).message || t('settings.ai.connectFailed'), 'error', 5600)
   } finally {
     testing.value = false
   }
 }
 
 async function loadStorageInfo() {
-  if (!desktop) {
-    dataDir.value = '浏览器 IndexedDB（开发模式）'
-    return
-  }
+  if (!desktop) return
   try {
     dataDir.value = (await getStorageState()).dataDir
   } catch (error) {
-    toast('读取数据目录失败：' + ((error as Error).message || '未知错误'), 'error', 4200)
+    toast(t('settings.data.readDirFailed', { error: errorText(error) }), 'error', 4200)
   }
 }
 
@@ -89,7 +119,7 @@ async function openStorageDir() {
   try {
     await openDataDir()
   } catch (error) {
-    toast('打开目录失败：' + ((error as Error).message || '未知错误'), 'error', 4200)
+    toast(t('settings.data.openDirFailed', { error: errorText(error) }), 'error', 4200)
   }
 }
 
@@ -107,9 +137,9 @@ async function applyDirChange() {
     pendingDir.value = ''
     await reloadStore()
     Object.assign(ai, state.settings.ai)
-    toast('数据目录已切换到：' + info.dataDir, 'success', 4200)
+    toast(t('settings.changeDir.switched', { dir: info.dataDir }), 'success', 4200)
   } catch (error) {
-    toast('切换数据目录失败：' + ((error as Error).message || '未知错误'), 'error', 5200)
+    toast(t('settings.changeDir.failed', { error: errorText(error) }), 'error', 5200)
   } finally {
     applyingDir.value = false
   }
@@ -131,7 +161,7 @@ async function clearAllData() {
   ui.cutPageByPaper = {}
   ui.view = 'import'
   confirmClear.value = false
-  toast('题库数据已清空，AI 设置已保留', 'success', 3000)
+  toast(t('settings.data.cleared'), 'success', 3000)
 }
 
 onMounted(() => {
@@ -145,52 +175,50 @@ onMounted(() => {
       <div class="settings-grid">
         <div>
           <div class="card card-pad" style="margin-bottom: 16px">
-            <div class="section-title"><Sparkles :size="16" style="color: var(--accent)" /> AI 辅助接口</div>
-            <div class="hint" style="margin-bottom: 14px">
-              用于「答案生成」「知识点推荐」「题目理解」以及题目图片的结构化识别。接口采用 OpenAI 兼容格式，密钥只保存在本机数据库中。
-            </div>
+            <div class="section-title"><Sparkles :size="16" style="color: var(--accent)" /> {{ t('settings.ai.title') }}</div>
+            <div class="hint" style="margin-bottom: 14px">{{ t('settings.ai.intro') }}</div>
 
             <div class="field">
-              <label class="label">服务商</label>
-              <div class="segmented" style="width: 100%">
-                <button
-                  v-for="item in providerOptions"
-                  :key="item.key"
-                  style="flex: 1"
-                  :class="{ active: ai.provider === item.key }"
-                  @click="ai.provider = item.key; onProviderChange()"
-                >
-                  {{ item.label }}
-                </button>
+              <label class="label">{{ t('settings.ai.provider') }}</label>
+              <select v-model="ai.provider" class="select" @change="onProviderChange">
+                <option v-for="key in providerKeys" :key="key" :value="key">{{ t(`settings.ai.providers.${key}`) }}</option>
+              </select>
+              <div v-if="preset?.keyUrl" class="hint" style="margin-top: 4px">
+                <template v-if="ai.provider === 'moerouter'">{{ t('settings.ai.moerouterHint') }} </template>
+                {{ t('settings.ai.keyWhere', { url: preset.keyUrl }) }}
               </div>
             </div>
 
             <div class="field">
-              <label class="label">接口地址 Base URL</label>
-              <input v-model="ai.baseUrl" class="input" placeholder="https://api.deepseek.com/v1" spellcheck="false" />
+              <label class="label">{{ t('settings.ai.baseUrl') }}</label>
+              <input v-model="ai.baseUrl" class="input" placeholder="https://api.example.com/v1" spellcheck="false" />
             </div>
 
             <div class="row-2">
               <div class="field">
-                <label class="label">模型</label>
-                <input v-model="ai.model" class="input" placeholder="deepseek-chat" spellcheck="false" />
+                <label class="label model-label">
+                  {{ t('settings.ai.model') }}
+                  <button class="link-btn" :disabled="loadingModels" :title="t('settings.ai.fetchModelsTitle')" @click="fetchModels">
+                    <Loader2 v-if="loadingModels" :size="12" class="spin" />
+                    <ListRestart v-else :size="12" /> {{ t('settings.ai.fetchModels') }}
+                  </button>
+                </label>
+                <ModelPicker v-model="ai.model" :options="modelOptions" />
               </div>
               <div class="field">
-                <label class="label">温度 · {{ ai.temperature.toFixed(2) }}</label>
+                <label class="label">{{ t('settings.ai.temperature', { value: ai.temperature.toFixed(2) }) }}</label>
                 <input v-model.number="ai.temperature" type="range" min="0" max="1" step="0.05" style="width: 100%; accent-color: var(--accent); margin-top: 8px" />
               </div>
             </div>
 
             <div class="field">
-              <label class="label">视觉模型（识图用）</label>
-              <input v-model="ai.visionModel" class="input" placeholder="如 qwen-vl-max；留空则使用上面的模型" spellcheck="false" />
-              <div class="hint" style="margin-top: 4px">
-                结构化识别需要支持图片输入的模型。留空时沿用上面的对话模型，如果该模型不支持识图，识别时会给出提示。
-              </div>
+              <label class="label">{{ t('settings.ai.visionModel') }}</label>
+              <ModelPicker v-model="ai.visionModel" :options="modelOptions" :empty-label="t('settings.ai.visionSameAsChat')" />
+              <div class="hint" style="margin-top: 4px">{{ t('settings.ai.visionHint') }}</div>
             </div>
 
             <div class="field">
-              <label class="label">API 密钥</label>
+              <label class="label">{{ t('settings.ai.apiKey') }}</label>
               <div style="position: relative">
                 <input
                   v-model="ai.apiKey"
@@ -210,11 +238,11 @@ onMounted(() => {
             <div style="display: flex; gap: 8px; margin-top: 16px">
               <button class="btn btn-primary" :disabled="saving" @click="saveAll">
                 <Loader2 v-if="saving" :size="14" class="spin" />
-                <Save v-else :size="14" /> 保存设置
+                <Save v-else :size="14" /> {{ t('settings.ai.saveSettings') }}
               </button>
               <button class="btn" :disabled="testing" @click="runTest">
                 <Loader2 v-if="testing" :size="14" class="spin" />
-                <PlugZap v-else :size="14" /> 测试连接
+                <PlugZap v-else :size="14" /> {{ t('settings.ai.testConnection') }}
               </button>
             </div>
           </div>
@@ -222,44 +250,50 @@ onMounted(() => {
 
         <div>
           <div class="card card-pad" style="margin-bottom: 16px">
-            <div class="section-title"><Database :size="16" style="color: var(--accent)" /> 本地数据</div>
+            <div class="section-title"><Languages :size="16" style="color: var(--accent)" /> {{ t('settings.language.title') }}</div>
+            <select class="select" :value="locale" @change="onLocaleChange">
+              <option v-for="item in LOCALES" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+            <div class="hint" style="margin-top: 6px">{{ t('settings.language.hint') }}</div>
+          </div>
+
+          <div class="card card-pad" style="margin-bottom: 16px">
+            <div class="section-title"><Database :size="16" style="color: var(--accent)" /> {{ t('settings.data.title') }}</div>
             <div class="stat-grid">
               <div class="stat">
                 <div class="stat-value">{{ state.papers.length }}</div>
-                <div class="stat-label">份试卷</div>
+                <div class="stat-label">{{ t('settings.data.papers') }}</div>
               </div>
               <div class="stat">
                 <div class="stat-value">{{ state.questions.length }}</div>
-                <div class="stat-label">道题目</div>
+                <div class="stat-label">{{ t('settings.data.questions') }}</div>
               </div>
               <div class="stat">
                 <div class="stat-value">{{ state.knowledge.length }}</div>
-                <div class="stat-label">个知识点</div>
+                <div class="stat-label">{{ t('settings.data.knowledge') }}</div>
               </div>
             </div>
-            <div v-if="desktop" class="hint" style="margin-top: 10px">
-              所有数据保存在本地文件夹中，不上传云端。备份或迁移时直接复制该目录即可。
-            </div>
+            <div v-if="desktop" class="hint" style="margin-top: 10px">{{ t('settings.data.localOnly') }}</div>
             <div class="divider" />
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
               <div>
-                <div style="font-size: 12.5px; font-weight: 600">数据存放目录</div>
-                <div class="hint" style="margin-top: 2px">题库、原始试卷文件与设置都保存在这里</div>
+                <div style="font-size: 12.5px; font-weight: 600">{{ t('settings.data.dirTitle') }}</div>
+                <div class="hint" style="margin-top: 2px">{{ t('settings.data.dirHint') }}</div>
               </div>
               <div v-if="desktop" style="display: flex; gap: 6px">
-                <button class="btn btn-sm" @click="openStorageDir"><FolderOpen :size="13" /> 打开目录</button>
-                <button class="btn btn-sm" @click="pickStorageDir">更改位置</button>
+                <button class="btn btn-sm" @click="openStorageDir"><FolderOpen :size="13" /> {{ t('settings.data.openDir') }}</button>
+                <button class="btn btn-sm" @click="pickStorageDir">{{ t('settings.data.changeDir') }}</button>
               </div>
             </div>
-            <div class="dir-box">{{ dataDir || '—' }}</div>
+            <div class="dir-box">{{ desktop ? dataDir || '—' : t('settings.data.browserDb') }}</div>
             <div class="divider" />
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
               <div>
-                <div style="font-size: 12.5px; font-weight: 600">清空题库数据</div>
-                <div class="hint" style="margin-top: 2px">删除全部试卷，题目和知识点（谨慎使用）</div>
+                <div style="font-size: 12.5px; font-weight: 600">{{ t('settings.data.clearTitle') }}</div>
+                <div class="hint" style="margin-top: 2px">{{ t('settings.data.clearHint') }}</div>
               </div>
               <button class="btn btn-danger btn-sm" :disabled="!state.questions.length && !state.papers.length && !state.knowledge.length" @click="confirmClear = true">
-                <Trash2 :size="13" /> 清空
+                <Trash2 :size="13" /> {{ t('settings.data.clear') }}
               </button>
             </div>
           </div>
@@ -267,29 +301,29 @@ onMounted(() => {
       </div>
     </div>
 
-    <AppModal v-if="pendingDir" title="更改数据存放位置？" @close="pendingDir = ''">
-      <template #description>切换后会重新加载该目录中的题库数据。</template>
+    <AppModal v-if="pendingDir" :title="t('settings.changeDir.title')" @close="pendingDir = ''">
+      <template #description>{{ t('settings.changeDir.description') }}</template>
       <div class="hint" style="line-height: 1.8">
-        新目录：<strong style="word-break: break-all">{{ pendingDir }}</strong><br />
-        若新目录为空，当前题库与设置会复制过去；若已有知题数据，则切换并加载该目录，原目录数据保留。
+        {{ t('settings.changeDir.newDir') }}<strong style="word-break: break-all">{{ pendingDir }}</strong><br />
+        {{ t('settings.changeDir.explain') }}
       </div>
       <template #actions>
-        <button class="btn" :disabled="applyingDir" @click="pendingDir = ''">取消</button>
+        <button class="btn" :disabled="applyingDir" @click="pendingDir = ''">{{ t('common.cancel') }}</button>
         <button class="btn btn-primary" :disabled="applyingDir" @click="applyDirChange">
           <Loader2 v-if="applyingDir" :size="14" class="spin" />
-          {{ applyingDir ? '正在切换…' : '确认切换' }}
+          {{ applyingDir ? t('settings.changeDir.switching') : t('settings.changeDir.confirm') }}
         </button>
       </template>
     </AppModal>
 
-    <AppModal v-if="confirmClear" title="清空全部题库数据？" @close="confirmClear = false">
-      <template #description>此操作不可撤销，请确认已备份需要的题目和知识点。</template>
+    <AppModal v-if="confirmClear" :title="t('settings.clearConfirm.title')" @close="confirmClear = false">
+      <template #description>{{ t('settings.clearConfirm.description') }}</template>
       <div class="hint">
-        将删除 {{ state.papers.length }} 份试卷、{{ state.questions.length }} 道题目、{{ state.knowledge.length }} 个知识点及原始试卷文件缓存，AI 设置会保留。
+        {{ t('settings.clearConfirm.detail', { papers: state.papers.length, questions: state.questions.length, knowledge: state.knowledge.length }) }}
       </div>
       <template #actions>
-        <button class="btn" @click="confirmClear = false">取消</button>
-        <button class="btn btn-danger" @click="clearAllData"><Trash2 :size="14" /> 确认清空</button>
+        <button class="btn" @click="confirmClear = false">{{ t('common.cancel') }}</button>
+        <button class="btn btn-danger" @click="clearAllData"><Trash2 :size="14" /> {{ t('settings.clearConfirm.confirm') }}</button>
       </template>
     </AppModal>
   </div>
@@ -322,6 +356,28 @@ onMounted(() => {
 }
 .key-toggle:hover {
   background: #f2f4fa;
+}
+.model-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 0;
+  cursor: pointer;
+}
+.link-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .dir-box {
   margin-top: 8px;

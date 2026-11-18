@@ -5,6 +5,7 @@ import type { ExportOptions, Question } from '../types'
 import { createTextCanvas, dataUrlToBytes, loadImage, mimeOf, sanitizeFileName } from './image'
 import { renderQuestionBlock } from './contentRender'
 import { exportDocx } from './docxExport'
+import { t } from '../i18n'
 
 const DPI = 200
 const PX_PER_MM = DPI / 25.4
@@ -132,7 +133,7 @@ async function renderBlock(
 
   const image = await loadImage(question.image).catch(() => null)
   if (!image) return null
-  return { canvas: imageToCanvas(image, widthPx), fallback: true, reason: rendered.error || '排版失败' }
+  return { canvas: imageToCanvas(image, widthPx), fallback: true, reason: rendered.error || t('export.warning.layoutFailed') }
 }
 
 function baseName(options: ExportOptions): string {
@@ -175,11 +176,11 @@ export async function exportPdf(
     onProgress?.({ done: i, total: questions.length })
     const block = await renderBlock(question, options, blockWidth, baseFontPx)
     if (!block) {
-      warnings.push(`第 ${i + 1} 题排版失败且原图不可用，已跳过`)
+      warnings.push(t('export.warning.skipped', { n: i + 1 }))
       onProgress?.({ done: i + 1, total: questions.length })
       continue
     }
-    if (block.fallback) warnings.push(`第 ${i + 1} 题排版失败（${block.reason}），已回退原图`)
+    if (block.fallback) warnings.push(t('export.warning.fallback', { n: i + 1, reason: block.reason }))
 
     if (options.onePerPage && current.hasBlock) {
       await flushPage()
@@ -268,11 +269,11 @@ export async function exportPptx(
     onProgress?.({ done: i, total: questions.length })
     const block = await renderBlock(question, options, PPT_WIDTH_PX, baseFontPx)
     if (!block) {
-      warnings.push(`第 ${i + 1} 题排版失败且原图不可用，已跳过`)
+      warnings.push(t('export.warning.skipped', { n: i + 1 }))
       onProgress?.({ done: i + 1, total: questions.length })
       continue
     }
-    if (block.fallback) warnings.push(`第 ${i + 1} 题排版失败（${block.reason}），已回退原图`)
+    if (block.fallback) warnings.push(t('export.warning.fallback', { n: i + 1, reason: block.reason }))
 
     const sliceCount = Math.max(1, Math.ceil(block.canvas.height / maxSlicePx))
     for (let sliceIndex = 0; sliceIndex < sliceCount; sliceIndex++) {
@@ -348,11 +349,9 @@ export async function exportZip(questions: Question[], options: ExportOptions): 
 
 export type ExportFormat = 'pdf' | 'docx' | 'pptx' | 'zip'
 
-export const FORMAT_LABELS: Record<ExportFormat, string> = {
-  pdf: 'PDF',
-  docx: 'Word 文档',
-  pptx: 'PPT 演示文稿',
-  zip: '素材包 ZIP'
+/** 导出格式的界面显示名（随界面语言切换） */
+export function formatLabel(format: ExportFormat): string {
+  return t(`export.format.${format}`)
 }
 
 export async function exportQuestions(

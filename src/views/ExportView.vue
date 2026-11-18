@@ -19,7 +19,7 @@ import {
   Sparkles,
   X
 } from 'lucide-vue-next'
-import { exportQuestions, FORMAT_LABELS, type ExportFormat } from '../utils/exporters'
+import { exportQuestions, formatLabel, type ExportFormat } from '../utils/exporters'
 import { downloadBlob } from '../utils/image'
 import { blobToBase64 } from '../utils/base64'
 import { writeFileAt } from '../utils/storage'
@@ -30,6 +30,8 @@ import { hasContentDoc, recognizeQuestionLayout } from '../utils/layout'
 import { buildLayoutImage } from '../utils/layoutImage'
 import { toast } from '../composables/toast'
 import AppModal from '../components/AppModal.vue'
+import { t } from '../i18n'
+import { typeLabel } from '../i18n/labels'
 import type { ExportOptions, Question } from '../types'
 
 const format = ref<ExportFormat>('pdf')
@@ -59,12 +61,12 @@ const options = reactive<ExportOptions>({
   fileName: ''
 })
 
-const formats: { key: ExportFormat; label: string; desc: string; icon: typeof FileText }[] = [
-  { key: 'pdf', label: FORMAT_LABELS.pdf, desc: '按题目文档重新排版，公式与图形清晰', icon: FileText },
-  { key: 'docx', label: FORMAT_LABELS.docx, desc: '文字可编辑，公式为 Word 原生公式', icon: FileDown },
-  { key: 'pptx', label: FORMAT_LABELS.pptx, desc: '一题一页，按题目文档排版，适合投屏', icon: Presentation },
-  { key: 'zip', label: FORMAT_LABELS.zip, desc: '全部题目原图 + 清单，便于归档', icon: Package }
-]
+const formats = computed<{ key: ExportFormat; label: string; desc: string; icon: typeof FileText }[]>(() => [
+  { key: 'pdf', label: formatLabel('pdf'), desc: t('export.format.pdfDesc'), icon: FileText },
+  { key: 'docx', label: formatLabel('docx'), desc: t('export.format.docxDesc'), icon: FileDown },
+  { key: 'pptx', label: formatLabel('pptx'), desc: t('export.format.pptxDesc'), icon: Presentation },
+  { key: 'zip', label: formatLabel('zip'), desc: t('export.format.zipDesc'), icon: Package }
+])
 
 const selectedQuestions = computed(() =>
   ui.exportIds.map((id) => state.questions.find((q) => q.id === id)).filter((q): q is NonNullable<typeof q> => !!q)
@@ -144,7 +146,7 @@ function removeQuestion(id: number) {
 
 function addAll() {
   ui.exportIds = state.questions.map((q) => q.id)
-  toast(`已添加全部 ${ui.exportIds.length} 道题目`, 'success', 1800)
+  toast(t('export.toast.addedAll', { n: ui.exportIds.length }), 'success', 1800)
 }
 
 function clearAll() {
@@ -178,7 +180,7 @@ function onDrop(index: number) {
 
 async function doExport() {
   if (!selectedQuestions.value.length) {
-    toast('请先选择需要导出的题目', 'warning')
+    toast(t('export.toast.noSelection'), 'warning')
     return
   }
   if (format.value !== 'zip' && missingContentQuestions.value.length) {
@@ -190,7 +192,7 @@ async function doExport() {
 
 async function runExport(list: Question[]) {
   exporting.value = true
-  exportingLabel.value = '正在生成排版…'
+  exportingLabel.value = t('export.progress.preparing')
   try {
     const finalOptions: ExportOptions = {
       ...options,
@@ -198,32 +200,32 @@ async function runExport(list: Question[]) {
       fileName: options.fileName || options.title || '试卷'
     }
     await new Promise((resolve) => setTimeout(resolve, 60))
-    exportingLabel.value = '正在排版题目文档…'
+    exportingLabel.value = t('export.progress.layingOut')
     const { blob, filename, warnings } = await exportQuestions(format.value, list, finalOptions, ({ done, total }) => {
-      exportingLabel.value = `正在排版第 ${Math.min(done + 1, total)}/${total} 题…`
+      exportingLabel.value = t('export.progress.question', { current: Math.min(done + 1, total), total })
     })
     if (isTauri()) {
-      exportingLabel.value = '请选择保存位置…'
+      exportingLabel.value = t('export.progress.chooseLocation')
       const ext = filename.split('.').pop()?.toLowerCase() || 'pdf'
       const path = await save({
         defaultPath: filename,
         filters: [{ name: ext.toUpperCase(), extensions: [ext] }]
       })
       if (!path) return
-      exportingLabel.value = '正在写入文件…'
+      exportingLabel.value = t('export.progress.writing')
       await writeFileAt(path, await blobToBase64(blob))
-      toast(`已导出到：${path}`, 'success', 5000)
+      toast(t('export.toast.savedTo', { path }), 'success', 5000)
     } else {
-      exportingLabel.value = '正在写入文件…'
+      exportingLabel.value = t('export.progress.writing')
       downloadBlob(blob, filename)
-      toast(`已导出「${filename}」`, 'success', 4000)
+      toast(t('export.toast.downloaded', { name: filename }), 'success', 4000)
     }
     if (warnings.length) {
-      const detail = warnings.slice(0, 2).join('；')
-      toast(warnings.length > 2 ? `${detail} 等 ${warnings.length} 条提示` : detail, 'warning', 6200)
+      const detail = warnings.slice(0, 2).join(t('export.toast.warningSeparator'))
+      toast(warnings.length > 2 ? t('export.toast.moreWarnings', { detail, n: warnings.length }) : detail, 'warning', 6200)
     }
   } catch (error) {
-    toast('导出失败：' + ((error as Error).message || '未知错误'), 'error', 5200)
+    toast(t('export.toast.failed', { message: (error as Error).message || t('common.unknownError') }), 'error', 5200)
   } finally {
     exporting.value = false
     exportingLabel.value = ''
@@ -232,7 +234,7 @@ async function runExport(list: Question[]) {
 
 async function generateContent(question: Question): Promise<void> {
   if (!state.settings.ai.apiKey.trim()) {
-    toast('请先在「设置」中填写 AI 接口与密钥', 'warning')
+    toast(t('export.toast.needAiKey'), 'warning')
     return
   }
   contentBusyId.value = question.id
@@ -241,10 +243,17 @@ async function generateContent(question: Question): Promise<void> {
     const image = await buildLayoutImage(question)
     const result = await recognizeQuestionLayout(state.settings.ai, image)
     await updateQuestion(question.id, { content: result.content, text: result.text })
-    toast(`题目文档已生成：${result.mathCount} 个公式、${result.figureCount} 个图形`, 'success', 3800)
+    toast(
+      t('export.toast.contentGenerated', {
+        formulas: t('export.toast.formulaCount', { n: result.mathCount }),
+        figures: t('export.toast.figureCount', { n: result.figureCount })
+      }),
+      'success',
+      3800
+    )
   } catch (error) {
-    contentErrors[question.id] = (error as Error).message || '生成失败'
-    toast('题目文档生成失败：' + contentErrors[question.id], 'error', 6200)
+    contentErrors[question.id] = (error as Error).message || t('export.toast.generateFailed')
+    toast(t('export.toast.contentFailed', { message: contentErrors[question.id] }), 'error', 6200)
   } finally {
     contentBusyId.value = null
   }
@@ -252,7 +261,7 @@ async function generateContent(question: Question): Promise<void> {
 
 async function generateAllContent() {
   if (!state.settings.ai.apiKey.trim()) {
-    toast('请先在「设置」中填写 AI 接口与密钥', 'warning')
+    toast(t('export.toast.needAiKey'), 'warning')
     return
   }
   contentGeneratingAll.value = true
@@ -260,7 +269,7 @@ async function generateAllContent() {
     for (const question of [...missingContentQuestions.value]) {
       await generateContent(question)
     }
-    if (!missingContentQuestions.value.length) toast('全部题目文档已生成', 'success', 3000)
+    if (!missingContentQuestions.value.length) toast(t('export.toast.allContentDone'), 'success', 3000)
   } finally {
     contentGeneratingAll.value = false
   }
@@ -269,12 +278,12 @@ async function generateAllContent() {
 async function exportWithAvailableContent() {
   const list = selectedQuestions.value.filter((q) => hasContentDoc(q.content))
   if (!list.length) {
-    toast('没有已生成题目文档的题目可导出', 'warning')
+    toast(t('export.toast.nothingToExport'), 'warning')
     return
   }
   const skipped = selectedQuestions.value.length - list.length
   contentMissingOpen.value = false
-  if (skipped) toast(`已跳过 ${skipped} 道未生成题目文档的题`, 'warning', 4200)
+  if (skipped) toast(t('export.toast.skipped', { n: skipped }), 'warning', 4200)
   await runExport(list)
 }
 
@@ -284,13 +293,13 @@ async function exportWithAvailableContent() {
   <div class="view">
     <div class="export-main">
       <div class="export-toolbar">
-        <span class="hint">已选 <strong style="color: var(--text)">{{ selectedQuestions.length }}</strong> 道题</span>
-        <button class="btn btn-ghost btn-sm" @click="ui.view = 'bank'"><ArrowLeft :size="13" /> 返回题库挑选</button>
-        <button class="btn btn-ghost btn-sm" :disabled="!totalQuestions || ui.exportIds.length === totalQuestions" @click="addAll">全选题库</button>
-        <button v-if="ui.exportIds.length" class="btn btn-ghost btn-sm" @click="clearAll">清空</button>
+        <span class="hint">{{ t('export.toolbar.selectedBefore') }} <strong style="color: var(--text)">{{ selectedQuestions.length }}</strong> {{ t('export.toolbar.selectedAfter') }}</span>
+        <button class="btn btn-ghost btn-sm" @click="ui.view = 'bank'"><ArrowLeft :size="13" /> {{ t('export.toolbar.backToBank') }}</button>
+        <button class="btn btn-ghost btn-sm" :disabled="!totalQuestions || ui.exportIds.length === totalQuestions" @click="addAll">{{ t('export.toolbar.addAll') }}</button>
+        <button v-if="ui.exportIds.length" class="btn btn-ghost btn-sm" @click="clearAll">{{ t('common.clear') }}</button>
         <div class="toolbar-spacer" />
         <button class="btn btn-sm" :class="{ 'btn-primary': showLibrary }" @click="showLibrary = !showLibrary">
-          <Plus :size="13" /> 从题库添加
+          <Plus :size="13" /> {{ t('export.toolbar.addFromBank') }}
           <ChevronUp v-if="showLibrary" :size="13" />
           <ChevronDown v-else :size="13" />
         </button>
@@ -299,17 +308,17 @@ async function exportWithAvailableContent() {
       <div v-if="showLibrary" class="library-panel">
         <div class="search-box" style="width: 100%; max-width: 420px">
           <Search :size="14" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-3)" />
-          <input v-model="libraryKeyword" class="input" style="padding-left: 30px" placeholder="搜索题干或知识点，快速添加题目…" />
+          <input v-model="libraryKeyword" class="input" style="padding-left: 30px" :placeholder="t('export.library.searchPlaceholder')" />
         </div>
-        <div v-if="!libraryQuestions.length" class="hint" style="padding: 10px 0">没有可添加的题目，或题库已全部选中。</div>
+        <div v-if="!libraryQuestions.length" class="hint" style="padding: 10px 0">{{ t('export.library.empty') }}</div>
         <div v-else class="library-grid">
           <div v-for="q in libraryQuestions" :key="q.id" class="library-item">
             <img v-if="q.image" :src="q.image" loading="lazy" />
             <div style="flex: 1; min-width: 0">
-              <div class="library-text">{{ q.text || '（暂无题干文字）' }}</div>
-              <div class="hint" style="font-size: 11px">{{ q.question_type }} · 难度 {{ q.difficulty }}</div>
+              <div class="library-text">{{ q.text || t('export.noText') }}</div>
+              <div class="hint" style="font-size: 11px">{{ typeLabel(q.question_type) }} · {{ t('export.difficultyN', { n: q.difficulty }) }}</div>
             </div>
-            <button class="btn btn-sm btn-primary" @click="addQuestion(q.id)"><Plus :size="12" /> 添加</button>
+            <button class="btn btn-sm btn-primary" @click="addQuestion(q.id)"><Plus :size="12" /> {{ t('common.add') }}</button>
           </div>
         </div>
       </div>
@@ -317,18 +326,18 @@ async function exportWithAvailableContent() {
       <div class="selected-area">
         <div v-if="!selectedQuestions.length" class="empty">
           <div class="empty-icon"><Package :size="24" /></div>
-          <div class="empty-title">还没有选择题目</div>
-          <div class="empty-desc">到题库勾选题目，或使用上方「从题库添加」快速挑选。选中的题目会按下面的顺序排版。</div>
+          <div class="empty-title">{{ t('export.empty.title') }}</div>
+          <div class="empty-desc">{{ t('export.empty.desc') }}</div>
           <div style="display: flex; gap: 8px; margin-top: 6px">
-            <button class="btn btn-primary" @click="ui.view = 'bank'">去题库挑选</button>
-            <button class="btn" @click="showLibrary = true"><Plus :size="14" /> 从题库添加</button>
+            <button class="btn btn-primary" @click="ui.view = 'bank'">{{ t('export.empty.goToBank') }}</button>
+            <button class="btn" @click="showLibrary = true"><Plus :size="14" /> {{ t('export.toolbar.addFromBank') }}</button>
           </div>
         </div>
 
         <template v-else>
           <div class="selected-head">
-            <div class="hint">拖动左侧手柄可调整题目顺序，导出时按此顺序编号。</div>
-            <div class="hint">共 {{ selectedQuestions.length }} 题</div>
+            <div class="hint">{{ t('export.selected.dragHint') }}</div>
+            <div class="hint">{{ t('export.selected.total', { n: selectedQuestions.length }) }}</div>
           </div>
           <div class="selected-list">
             <div
@@ -346,18 +355,18 @@ async function exportWithAvailableContent() {
               <div class="order-badge">{{ index + 1 }}</div>
               <div class="thumb"><img v-if="q.image" :src="q.image" loading="lazy" /></div>
               <div style="flex: 1; min-width: 0">
-                <div class="row-text">{{ q.text || '（暂无题干文字，可在题库中生成题目文档）' }}</div>
+                <div class="row-text">{{ q.text || t('export.noTextGenerate') }}</div>
                 <div class="row-meta">
-                  <span class="badge badge-gray">{{ q.question_type }}</span>
-                  <span class="hint" style="font-size: 11px">难度 {{ q.difficulty }}</span>
+                  <span class="badge badge-gray">{{ typeLabel(q.question_type) }}</span>
+                  <span class="hint" style="font-size: 11px">{{ t('export.difficultyN', { n: q.difficulty }) }}</span>
                   <span v-if="q.knowledge.length" class="hint" style="font-size: 11px">· {{ q.knowledge.slice(0, 2).join(' / ') }}</span>
                   <span class="hint" style="font-size: 11px">· {{ paperOf(q)?.title }}</span>
                 </div>
               </div>
               <div class="row-actions">
-                <button class="btn btn-ghost btn-icon" title="上移" :disabled="index === 0" @click="move(index, -1)"><ChevronUp :size="14" /></button>
-                <button class="btn btn-ghost btn-icon" title="下移" :disabled="index === selectedQuestions.length - 1" @click="move(index, 1)"><ChevronDown :size="14" /></button>
-                <button class="btn btn-ghost btn-icon" title="移出" @click="removeQuestion(q.id)"><X :size="14" /></button>
+                <button class="btn btn-ghost btn-icon" :title="t('export.selected.moveUp')" :disabled="index === 0" @click="move(index, -1)"><ChevronUp :size="14" /></button>
+                <button class="btn btn-ghost btn-icon" :title="t('export.selected.moveDown')" :disabled="index === selectedQuestions.length - 1" @click="move(index, 1)"><ChevronDown :size="14" /></button>
+                <button class="btn btn-ghost btn-icon" :title="t('export.selected.remove')" @click="removeQuestion(q.id)"><X :size="14" /></button>
               </div>
             </div>
           </div>
@@ -366,7 +375,7 @@ async function exportWithAvailableContent() {
     </div>
 
     <aside class="inspector">
-      <div class="section-title" style="margin-bottom: 10px">导出格式</div>
+      <div class="section-title" style="margin-bottom: 10px">{{ t('export.format.title') }}</div>
       <div class="format-list">
         <button
           v-for="item in formats"
@@ -386,85 +395,85 @@ async function exportWithAvailableContent() {
 
       <div class="divider" />
 
-      <div class="section-title" style="margin-bottom: 10px">排版设置</div>
+      <div class="section-title" style="margin-bottom: 10px">{{ t('export.layout.title') }}</div>
       <div class="field">
-        <label class="label">试卷标题</label>
-        <input v-model="options.title" class="input" placeholder="导出文件中的标题" @input="titleEdited = true" />
+        <label class="label">{{ t('export.layout.paperTitle') }}</label>
+        <input v-model="options.title" class="input" :placeholder="t('export.layout.paperTitlePlaceholder')" @input="titleEdited = true" />
       </div>
       <div class="field">
-        <label class="label">副标题 / 说明</label>
-        <input v-model="options.subtitle" class="input" placeholder="例如：初三物理 · 第一轮复习" @input="subtitleEdited = true" />
+        <label class="label">{{ t('export.layout.subtitle') }}</label>
+        <input v-model="options.subtitle" class="input" :placeholder="t('export.layout.subtitlePlaceholder')" @input="subtitleEdited = true" />
       </div>
 
       <div class="switch-row">
         <div>
-          包含参考答案
+          {{ t('export.layout.includeAnswers') }}
           <div class="hint" style="margin-top: 2px">
-            {{ format === 'zip' ? '答案写入题目清单' : '答案显示在每题下方' }}
+            {{ format === 'zip' ? t('export.layout.answersInManifest') : t('export.layout.answersBelow') }}
           </div>
         </div>
         <button class="switch" :class="{ on: options.showAnswer }" @click="toggleAnswers()" />
       </div>
       <div class="switch-row">
-        <div>每题独立一页</div>
+        <div>{{ t('export.layout.onePerPage') }}</div>
         <button class="switch" :class="{ on: options.onePerPage }" @click="options.onePerPage = !options.onePerPage" />
       </div>
       <div class="switch-row">
         <div>
-          新加题目编号
-          <div class="hint" style="margin-top: 2px">题目无编号可勾选</div>
+          {{ t('export.layout.addNumbers') }}
+          <div class="hint" style="margin-top: 2px">{{ t('export.layout.addNumbersHint') }}</div>
         </div>
         <button class="switch" :class="{ on: options.showNumber }" @click="options.showNumber = !options.showNumber" />
       </div>
 
       <div class="row-2" style="margin-top: 12px">
         <div class="field">
-          <label class="label">纸张</label>
+          <label class="label">{{ t('export.layout.pageSize') }}</label>
           <select v-model="options.pageSize" class="select">
             <option value="a4">A4</option>
             <option value="letter">Letter</option>
           </select>
         </div>
         <div class="field">
-          <label class="label">页边距 · {{ options.margin }} mm</label>
+          <label class="label">{{ t('export.layout.margin', { n: options.margin }) }}</label>
           <input v-model.number="options.margin" type="range" min="8" max="30" step="2" style="width: 100%; accent-color: var(--accent)" />
         </div>
       </div>
 
       <div class="field">
-        <label class="label">{{ format === 'zip' ? '题目图片宽度' : '题目内容宽度' }} · {{ Math.round(options.scale * 100) }}%</label>
+        <label class="label">{{ t(format === 'zip' ? 'export.layout.imageWidth' : 'export.layout.contentWidth', { n: Math.round(options.scale * 100) }) }}</label>
         <input v-model.number="options.scale" type="range" min="0.6" max="1" step="0.05" style="width: 100%; accent-color: var(--accent)" />
       </div>
 
       <div class="field">
-        <label class="label">文件名</label>
-        <input v-model="options.fileName" class="input" placeholder="默认与标题一致" />
+        <label class="label">{{ t('export.layout.fileName') }}</label>
+        <input v-model="options.fileName" class="input" :placeholder="t('export.layout.fileNamePlaceholder')" />
       </div>
 
       <button class="btn btn-primary btn-lg" style="width: 100%; margin-top: 4px" :disabled="!selectedQuestions.length || exporting" @click="doExport">
         <Loader2 v-if="exporting" :size="16" class="spin" />
         <Download v-else :size="16" />
-        {{ exporting ? '正在导出…' : `导出 ${selectedQuestions.length} 道题` }}
+        {{ exporting ? t('export.action.exporting') : t('export.action.export', { n: selectedQuestions.length }) }}
       </button>
       <div v-if="exporting" class="hint" style="text-align: center; margin-top: 8px">{{ exportingLabel }}</div>
 
       <div v-if="format !== 'zip' && missingContentQuestions.length" class="export-warning">
-        <AlertTriangle :size="13" /> {{ missingContentQuestions.length }} 道题尚未生成题目文档，导出前需生成或跳过。
+        <AlertTriangle :size="13" /> {{ t('export.action.missingContent', { n: missingContentQuestions.length }) }}
       </div>
 
       <div v-if="selectedQuestions.length > 100" class="export-warning">
-        <AlertTriangle :size="13" /> 题目超过 100 道，导出与排版可能需要较长时间。
+        <AlertTriangle :size="13" /> {{ t('export.action.tooMany') }}
       </div>
 
       <div class="hint" style="margin-top: 12px; line-height: 1.7">
-        导出说明：PDF / Word / PPT 按「题目文档」的结构化内容重新排版，ZIP 仍导出题目原图。点击导出会弹出保存位置选择窗口。
+        {{ t('export.action.note') }}
       </div>
     </aside>
   </div>
 
-  <AppModal v-if="missingOpen" title="有题目还没有填写参考答案" :width="640" @close="missingOpen = false">
+  <AppModal v-if="missingOpen" :title="t('export.missingAnswers.title')" :width="640" @close="missingOpen = false">
     <template #description>
-      已勾选「包含参考答案」，以下 {{ missingQuestions.length }} 道题没有答案，导出时会跳过它们的答案。请前往题目文档补充并保存，返回后列表会自动刷新。
+      {{ t('export.missingAnswers.desc', { n: missingQuestions.length }) }}
     </template>
 
     <div class="missing-list">
@@ -472,17 +481,17 @@ async function exportWithAvailableContent() {
         <div class="missing-head">
           <button
             class="missing-thumb"
-            title="查看题目图片"
+            :title="t('export.missingAnswers.viewImage')"
             @click="missingPreviewId = missingPreviewId === q.id ? null : q.id"
           >
             <img v-if="q.image" :src="q.image" loading="lazy" />
           </button>
           <div style="flex: 1; min-width: 0">
-            <div class="missing-text">{{ q.text || '（暂无题干文字）' }}</div>
-            <div class="hint" style="font-size: 11px">{{ q.question_type }} · {{ paperOf(q)?.title }}</div>
+            <div class="missing-text">{{ q.text || t('export.noText') }}</div>
+            <div class="hint" style="font-size: 11px">{{ typeLabel(q.question_type) }} · {{ paperOf(q)?.title }}</div>
           </div>
           <button class="btn btn-sm" @click="goToQuestion(q)">
-            <ArrowRight :size="12" /> 去查看
+            <ArrowRight :size="12" /> {{ t('export.missingAnswers.view') }}
           </button>
         </div>
         <img v-if="missingPreviewId === q.id && q.image" class="missing-preview" :src="q.image" />
@@ -490,26 +499,25 @@ async function exportWithAvailableContent() {
     </div>
 
     <template #actions>
-      <button class="btn" @click="missingOpen = false">关闭</button>
+      <button class="btn" @click="missingOpen = false">{{ t('common.close') }}</button>
     </template>
   </AppModal>
 
-  <AppModal v-if="contentMissingOpen" title="有题目还没有生成题目文档" :width="720" @close="contentMissingOpen = false">
+  <AppModal v-if="contentMissingOpen" :title="t('export.missingContent.title')" :width="720" @close="contentMissingOpen = false">
     <template #description>
-      已勾选 {{ selectedQuestions.length }} 道题，其中 {{ missingContentQuestions.length }} 道还没有 AI 识别的题目文档。PDF / Word / PPT
-      需要基于题目文档排版，可在下方直接生成，或跳过这些题继续导出。
+      {{ t('export.missingContent.desc', { total: selectedQuestions.length, n: missingContentQuestions.length }) }}
     </template>
 
     <div v-if="missingContentQuestions.length" class="content-missing-toolbar">
-      <span class="hint">共 {{ missingContentQuestions.length }} 道待生成</span>
+      <span class="hint">{{ t('export.missingContent.pending', { n: missingContentQuestions.length }) }}</span>
       <button class="btn btn-sm" :disabled="contentBusy" @click="generateAllContent">
         <Loader2 v-if="contentGeneratingAll" :size="12" class="spin" />
-        <Sparkles v-else :size="12" /> 全部生成
+        <Sparkles v-else :size="12" /> {{ t('export.missingContent.generateAll') }}
       </button>
     </div>
 
     <div v-if="!missingContentQuestions.length" class="content-missing-empty">
-      <Check :size="18" /> 所有题目文档已生成，可以继续导出。
+      <Check :size="18" /> {{ t('export.missingContent.allDone') }}
     </div>
 
     <div v-else class="missing-list">
@@ -517,19 +525,19 @@ async function exportWithAvailableContent() {
         <div class="missing-head">
           <button
             class="missing-thumb"
-            title="查看题目图片"
+            :title="t('export.missingAnswers.viewImage')"
             @click="missingPreviewId = missingPreviewId === q.id ? null : q.id"
           >
             <img v-if="q.image" :src="q.image" loading="lazy" />
           </button>
           <div style="flex: 1; min-width: 0">
-            <div class="missing-text">{{ q.text || '（暂无题干文字，建议先在题库生成题目文档）' }}</div>
-            <div class="hint" style="font-size: 11px">{{ q.question_type }} · {{ paperOf(q)?.title }}</div>
+            <div class="missing-text">{{ q.text || t('export.noTextSuggest') }}</div>
+            <div class="hint" style="font-size: 11px">{{ typeLabel(q.question_type) }} · {{ paperOf(q)?.title }}</div>
             <div v-if="contentErrors[q.id]" class="content-missing-error">{{ contentErrors[q.id] }}</div>
           </div>
           <button class="btn btn-sm" :disabled="contentBusy || !q.image" @click="generateContent(q)">
             <Loader2 v-if="contentBusyId === q.id" :size="12" class="spin" />
-            <Sparkles v-else :size="12" /> {{ contentErrors[q.id] ? '重试' : 'AI 生成' }}
+            <Sparkles v-else :size="12" /> {{ contentErrors[q.id] ? t('common.retry') : t('export.missingContent.generate') }}
           </button>
         </div>
         <img v-if="missingPreviewId === q.id && q.image" class="missing-preview" :src="q.image" />
@@ -537,9 +545,9 @@ async function exportWithAvailableContent() {
     </div>
 
     <template #actions>
-      <button class="btn" @click="contentMissingOpen = false">取消</button>
+      <button class="btn" @click="contentMissingOpen = false">{{ t('common.cancel') }}</button>
       <button class="btn btn-primary" :disabled="contentBusy" @click="exportWithAvailableContent">
-        {{ missingContentQuestions.length ? `跳过 ${missingContentQuestions.length} 道并导出` : '继续导出' }}
+        {{ missingContentQuestions.length ? t('export.missingContent.skipAndExport', { n: missingContentQuestions.length }) : t('export.missingContent.continueExport') }}
       </button>
     </template>
   </AppModal>

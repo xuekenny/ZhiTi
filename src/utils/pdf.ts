@@ -2,6 +2,7 @@ import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { repositories } from '../db'
+import { t } from '../i18n'
 import type { Region } from '../types'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
@@ -33,7 +34,7 @@ export async function getPaperDocument(paperId: number): Promise<PDFDocumentProx
   const cached = docCache.get(paperId)
   if (cached) return cached
   const stored = await repositories.savedFile(paperId)
-  if (!stored) throw new Error('找不到原始 PDF 文件，请重新导入该试卷')
+  if (!stored) throw new Error(t('import.errors.pdfMissing'))
   const doc = await pdfjsLib.getDocument({ data: new Uint8Array(stored.data.slice(0)) }).promise
   docCache.set(paperId, doc)
   return doc

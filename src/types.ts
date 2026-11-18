@@ -88,7 +88,7 @@ export interface KnowledgePoint {
 }
 
 export interface AiSettings {
-  provider: 'deepseek' | 'qwen' | 'custom'
+  provider: 'moerouter' | 'deepseek' | 'qwen' | 'custom'
   baseUrl: string
   model: string
   /** 识图用模型；留空时沿用 model */

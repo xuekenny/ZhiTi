@@ -3,6 +3,7 @@ import 'katex/contrib/mhchem'
 import type { AiSettings, AnswerBlock, ContentDoc, ContentNode } from '../types'
 import { chat, type ChatMessage } from './ai'
 import { loadImage } from './image'
+import { t } from '../i18n'
 
 export type LayoutAlign = 'left' | 'center' | 'right'
 export type LayoutSize = 'large' | 'normal' | 'small'
@@ -72,7 +73,7 @@ export async function recognizeQuestionLayout(config: AiSettings, imageDataUrl: 
     timeoutMs: 90000
   })
   const blocks = parseLayoutBlocks(raw)
-  if (!blocks.length) throw new Error('模型未返回可用的题目内容')
+  if (!blocks.length) throw new Error(t('cut.layout.noQuestionContent'))
   const built = await buildContentDoc(blocks, imageDataUrl)
   return {
     content: built.doc,
@@ -132,9 +133,9 @@ export async function recognizeAnswerLayout(config: AiSettings, imageDataUrl: st
     timeoutMs: 90000
   })
   const layoutBlocks = parseLayoutBlocks(raw)
-  if (!layoutBlocks.length) throw new Error('模型未返回可用的答案内容')
+  if (!layoutBlocks.length) throw new Error(t('cut.layout.noAnswerContent'))
   const built = toAnswerBlocks(layoutBlocks)
-  if (!built.blocks.length) throw new Error('未识别到答案内容，请换一张更清晰的图片重试')
+  if (!built.blocks.length) throw new Error(t('cut.layout.answerEmpty'))
   return {
     blocks: built.blocks,
     text: answerBlocksToText(built.blocks),
@@ -150,7 +151,7 @@ function toAnswerBlocks(blocks: LayoutBlock[]): { blocks: AnswerBlock[]; figureC
   for (const block of blocks) {
     if (block.type === 'image') {
       if (!block.bbox || block.bbox[2] <= 0 || block.bbox[3] <= 0) {
-        warnings.push('有 1 张插图未给出有效位置，已跳过')
+        warnings.push(t('cut.layout.figureNoBbox'))
         continue
       }
       out.push({ type: 'image', bbox: block.bbox, width: block.width, align: block.align })
@@ -222,7 +223,7 @@ function extractJson(raw: string): unknown {
       }
     }
   }
-  throw new Error('识别结果不是有效 JSON，请重试或更换视觉模型')
+  throw new Error(t('cut.layout.invalidJson'))
 }
 
 function pickBlocks(payload: unknown): unknown[] {
@@ -480,7 +481,7 @@ async function buildContentDoc(
         if (run.type === 'math') {
           if (!run.latex) continue
           mathCount++
-          if (!isValidLatex(run.latex, false)) warnings.add(`公式语法可疑：${run.latex.slice(0, 48)}`)
+          if (!isValidLatex(run.latex, false)) warnings.add(t('cut.layout.suspiciousLatex', { latex: run.latex.slice(0, 48) }))
           runs.push({ type: 'mathInline', attrs: { latex: run.latex } })
         } else if (run.text) {
           runs.push({ type: 'text', text: run.text })
@@ -503,7 +504,7 @@ async function buildContentDoc(
 
     if (block.type === 'math') {
       mathCount++
-      if (!isValidLatex(block.latex, true)) warnings.add(`公式语法可疑：${block.latex.slice(0, 48)}`)
+      if (!isValidLatex(block.latex, true)) warnings.add(t('cut.layout.suspiciousLatex', { latex: block.latex.slice(0, 48) }))
       content.push({
         type: 'mathBlock',
         attrs: {
@@ -528,7 +529,7 @@ async function buildContentDoc(
     }
     if (!src) {
       unresolved++
-      warnings.add('图形区域未定位，已保留占位')
+      warnings.add(t('cut.layout.figureUnresolved'))
     }
     content.push({
       type: 'figure',
@@ -543,7 +544,7 @@ async function buildContentDoc(
     })
   }
 
-  if (!content.length) throw new Error('识别结果为空')
+  if (!content.length) throw new Error(t('cut.layout.emptyResult'))
   return { doc: { type: 'doc', content }, warnings: Array.from(warnings), mathCount, figureCount, unresolved }
 }
 

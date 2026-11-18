@@ -5,6 +5,7 @@ import { NodeViewWrapper } from '@tiptap/vue-3'
 import { AlignCenter, AlignLeft, AlignRight, Loader2 } from 'lucide-vue-next'
 import AppModal from './AppModal.vue'
 import { toast } from '../composables/toast'
+import { t } from '../i18n'
 import { FIGURE_SOURCE_KEY } from '../editor/figureContext'
 
 const props = defineProps<NodeViewProps>()
@@ -190,9 +191,9 @@ async function applyCrop() {
       unresolved: false
     })
     cropping.value = false
-    toast('图形范围已更新', 'success', 2200)
+    toast(t('paper.figure.cropUpdated'), 'success', 2200)
   } catch {
-    toast('裁剪失败，请重试', 'error')
+    toast(t('paper.figure.cropFailed'), 'error')
   } finally {
     cropBusy.value = false
   }
@@ -213,44 +214,66 @@ onBeforeUnmount(() => {
     contenteditable="false"
   >
     <div class="figure-frame">
-      <img v-if="node.attrs.src" :src="node.attrs.src" alt="题目图形" draggable="false" />
+      <img v-if="node.attrs.src" :src="node.attrs.src" :alt="t('paper.figure.alt')" draggable="false" />
       <div v-else class="figure-missing">
-        <div class="figure-missing-title">图形区域未定位</div>
-        <div class="figure-missing-desc">可在「原图 / 文字」中查看，或重新识别</div>
+        <div class="figure-missing-title">{{ t('paper.figure.missingTitle') }}</div>
+        <div class="figure-missing-desc">{{ t('paper.figure.missingDesc') }}</div>
       </div>
       <template v-if="editor.isEditable">
-        <span class="figure-handle is-w" title="拖动调整宽度" @pointerdown.prevent.stop="startResize($event, 'w')" />
-        <span class="figure-handle is-e" title="拖动调整宽度" @pointerdown.prevent.stop="startResize($event, 'e')" />
-        <span class="figure-handle is-se" title="拖动调整宽度" @pointerdown.prevent.stop="startResize($event, 'se')" />
+        <span class="figure-handle is-w" :title="t('paper.figure.dragResize')" @pointerdown.prevent.stop="startResize($event, 'w')" />
+        <span class="figure-handle is-e" :title="t('paper.figure.dragResize')" @pointerdown.prevent.stop="startResize($event, 'e')" />
+        <span class="figure-handle is-se" :title="t('paper.figure.dragResize')" @pointerdown.prevent.stop="startResize($event, 'se')" />
       </template>
     </div>
     <div v-if="editor.isEditable" class="figure-bar" :class="`is-${align}`">
-      <span class="figure-tag">{{ node.attrs.unresolved ? '待确认图形' : '图形' }} · {{ Math.round(width * 100) }}%</span>
+      <span class="figure-tag">
+        {{ node.attrs.unresolved ? t('paper.figure.unresolved') : t('paper.figure.label') }} · {{ Math.round(width * 100) }}%
+      </span>
       <div class="figure-tools">
         <div class="figure-align">
-          <button type="button" :class="{ active: align === 'left' }" title="左对齐" @mousedown.prevent @click="setAlign('left')">
+          <button
+            type="button"
+            :class="{ active: align === 'left' }"
+            :title="t('paper.figure.alignLeft')"
+            @mousedown.prevent
+            @click="setAlign('left')"
+          >
             <AlignLeft :size="13" />
           </button>
-          <button type="button" :class="{ active: align === 'center' }" title="居中" @mousedown.prevent @click="setAlign('center')">
+          <button
+            type="button"
+            :class="{ active: align === 'center' }"
+            :title="t('paper.figure.alignCenter')"
+            @mousedown.prevent
+            @click="setAlign('center')"
+          >
             <AlignCenter :size="13" />
           </button>
-          <button type="button" :class="{ active: align === 'right' }" title="右对齐" @mousedown.prevent @click="setAlign('right')">
+          <button
+            type="button"
+            :class="{ active: align === 'right' }"
+            :title="t('paper.figure.alignRight')"
+            @mousedown.prevent
+            @click="setAlign('right')"
+          >
             <AlignRight :size="13" />
           </button>
         </div>
-        <select class="figure-gap" :value="gap" title="图形上方间距" @change="setGap">
-          <option v-for="level in 4" :key="level - 1" :value="level - 1">{{ level - 1 }} 行间距</option>
+        <select class="figure-gap" :value="gap" :title="t('paper.figure.gapTitle')" @change="setGap">
+          <option v-for="level in 4" :key="level - 1" :value="level - 1">{{ t('paper.figure.gapOption', { n: level - 1 }) }}</option>
         </select>
-        <button v-if="sourceImage" type="button" class="figure-crop" @mousedown.prevent @click="openCrop">调整范围</button>
-        <button type="button" class="figure-remove" @mousedown.prevent @click="deleteNode?.()">删除</button>
+        <button v-if="sourceImage" type="button" class="figure-crop" @mousedown.prevent @click="openCrop">
+          {{ t('paper.figure.adjustCrop') }}
+        </button>
+        <button type="button" class="figure-remove" @mousedown.prevent @click="deleteNode?.()">{{ t('common.delete') }}</button>
       </div>
     </div>
 
-    <AppModal v-if="cropping" title="调整图形范围" :width="860" :z-index="95" @close="closeCrop">
-      <template #description>拖动裁剪框移动位置，拖四角调整大小，框选要显示的图形区域。</template>
+    <AppModal v-if="cropping" :title="t('paper.figure.cropTitle')" :width="860" :z-index="95" @close="closeCrop">
+      <template #description>{{ t('paper.figure.cropDesc') }}</template>
       <div class="crop-wrap">
         <div class="crop-stage">
-          <img ref="cropImageRef" :src="sourceImage" alt="题目原图" draggable="false" />
+          <img ref="cropImageRef" :src="sourceImage" :alt="t('paper.figure.sourceAlt')" draggable="false" />
           <div class="crop-box" :style="cropBoxStyle" @pointerdown.prevent.stop="startCropDrag($event, 'move')">
             <span class="crop-handle is-nw" @pointerdown.prevent.stop="startCropDrag($event, 'nw')" />
             <span class="crop-handle is-ne" @pointerdown.prevent.stop="startCropDrag($event, 'ne')" />
@@ -260,9 +283,9 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <template #actions>
-        <button class="btn" @click="closeCrop">取消</button>
+        <button class="btn" @click="closeCrop">{{ t('common.cancel') }}</button>
         <button class="btn btn-primary" :disabled="cropBusy" @click="applyCrop">
-          <Loader2 v-if="cropBusy" :size="14" class="spin" /> 应用裁剪
+          <Loader2 v-if="cropBusy" :size="14" class="spin" /> {{ t('paper.figure.applyCrop') }}
         </button>
       </template>
     </AppModal>

@@ -44,7 +44,9 @@ import {
 import { buildLayoutImage, buildRegionsImage } from '../utils/layoutImage'
 import { requestStopBatchRecognition, startBatchRecognition } from '../utils/batchRecognition'
 import { mergeContinuationLines } from '../utils/reflow'
-import { answerTag, questionTag } from '../utils/label'
+import { answerTag, questionTag, subjectName } from '../utils/label'
+import { t, type MessageKey } from '../i18n'
+import { difficultyLabel, gradeLabel, subjectLabel, typeLabel } from '../i18n/labels'
 import { compressImage } from '../utils/image'
 import { DIFFICULTY_LABELS, QUESTION_TYPES, TYPE_BADGE_CLASS, GRADES, type AnswerBlock, type ContentDoc, type Question } from '../types'
 
@@ -87,8 +89,8 @@ const hasDraftContent = computed(() => hasContentDoc(draft.value?.content))
 const editorContent = computed<ContentDoc>(() => draft.value?.content ?? { type: 'doc', content: [] })
 const paperImage = computed(() => draft.value?.image ?? '')
 const paperTitle = computed(() => {
-  if (!draft.value) return '题目文档'
-  return `${questionLabelOf(draft.value)} · 题目文档`
+  if (!draft.value) return t('bank.paperTitle')
+  return t('bank.paperTitleWith', { label: questionLabelOf(draft.value) })
 })
 const draftStoreQuestion = computed(() =>
   draft.value ? state.questions.find((q) => q.id === draft.value!.id) : undefined
@@ -116,13 +118,13 @@ const answerPickPaper = computed(() => {
   const pending = activePending.value
   return pending ? state.papers.find((p) => p.id === pending.paperId) ?? null : null
 })
-const activePendingLabel = computed(() => answerTag(answerPickPaper.value?.subject, activePendingIndex.value))
+const activePendingLabel = computed(() => answerLabelOf(answerPickPaper.value?.subject, activePendingIndex.value))
 const answerPickTarget = computed(() => state.questions.find((q) => q.id === answerPickTargetId.value) ?? null)
 const answerPickSummary = computed(() => {
   const question = answerPickTarget.value
   if (!question) return ''
-  const line = (question.text || '').split('\n').map((item) => item.trim()).find(Boolean) || '（无题干文字）'
-  return `${questionLabelOf(question)} · ${paperOf(question)?.title || '未关联试卷'} · ${line}`
+  const line = (question.text || '').split('\n').map((item) => item.trim()).find(Boolean) || t('bank.noStemText')
+  return `${questionLabelOf(question)} · ${paperOf(question)?.title || t('bank.noLinkedPaper')} · ${line}`
 })
 const answerOverwriteLabel = computed(() =>
   answerOverwriteTarget.value ? questionLabelOf(answerOverwriteTarget.value) : ''
@@ -225,9 +227,19 @@ function questionIndexInPaper(question: Question): number {
   return state.questions.filter((q) => q.paper_id === question.paper_id).findIndex((q) => q.id === question.id) + 1
 }
 
-/** 题目编号：学科 + 该试卷内序号，如「物理3」 */
+/** 题目编号（界面显示）：学科 + 该试卷内序号，如「物理3」 */
 function questionLabelOf(question: Question): string {
   return questionTag(paperOf(question)?.subject, questionIndexInPaper(question))
+}
+
+/** 答案框编号（界面显示），如「物理3答案」 */
+function answerLabelOf(subject: string | null | undefined, indexInPaper: number): string {
+  return answerTag(subject, indexInPaper)
+}
+
+/** 题卡没有题干文字时的占位 HTML */
+function emptyTextHtml(): string {
+  return `<span style='color:#a2a9b8'>${escapeHtml(t('bank.card.noText'))}</span>`
 }
 
 function resetFilters() {
@@ -251,7 +263,7 @@ function selectAllVisible() {
   const ids = new Set(ui.exportIds)
   filtered.value.forEach((q) => ids.add(q.id))
   ui.exportIds = Array.from(ids)
-  toast(`已选中 ${ui.exportIds.length} 道题`, 'success', 1800)
+  toast(t('bank.toast.selectedCount', { n: ui.exportIds.length }), 'success', 1800)
 }
 
 function clearSelection() {
@@ -260,7 +272,7 @@ function clearSelection() {
 
 function goExport() {
   if (!ui.exportIds.length) {
-    toast('请先勾选需要导出的题目', 'warning')
+    toast(t('bank.toast.selectToExport'), 'warning')
     return
   }
   ui.view = 'export'
@@ -308,9 +320,9 @@ async function saveDraft(silent = false) {
       await addKnowledgePoint(name, paperOf(current)?.subject ?? '')
     }
     dirty.value = false
-    if (!silent) toast('已保存题目修改', 'success')
+    if (!silent) toast(t('bank.toast.saved'), 'success')
   } catch (error) {
-    toast('保存失败：' + ((error as Error).message || '未知错误'), 'error')
+    toast(t('bank.toast.saveFailed', { error: (error as Error).message || t('common.unknownError') }), 'error')
   } finally {
     saving.value = false
   }
@@ -320,7 +332,7 @@ async function runAi(kind: 'knowledge' | 'analysis') {
   if (!draft.value) return
   const text = (draft.value.content ? docToPlainText(draft.value.content) : draft.value.text).trim()
   if (!text) {
-    toast('题目还没有文字内容，请先生成题目文档或手动补充题干', 'warning')
+    toast(t('bank.toast.noTextForAi'), 'warning')
     return
   }
   aiBusy.value = kind
@@ -340,7 +352,7 @@ async function runAi(kind: 'knowledge' | 'analysis') {
         if (!draft.value.knowledge.includes(name)) draft.value.knowledge.push(name)
       }
       dirty.value = true
-      toast(`AI 推荐了 ${result.length} 个知识点：${result.join('、')}`, 'success', 4200)
+      toast(t('bank.toast.aiKnowledge', { n: result.length, list: result.join(t('bank.listSeparator')) }), 'success', 4200)
     } else {
       const result = await analyzeQuestion(config, {
         text,
@@ -350,10 +362,10 @@ async function runAi(kind: 'knowledge' | 'analysis') {
       })
       draft.value.analysis = result
       dirty.value = true
-      toast('AI 已生成题目理解，请核对后保存', 'success')
+      toast(t('bank.toast.aiAnalysis'), 'success')
     }
   } catch (error) {
-    toast((error as Error).message || 'AI 调用失败', 'error', 5200)
+    toast((error as Error).message || t('bank.toast.aiFailed'), 'error', 5200)
   } finally {
     aiBusy.value = ''
   }
@@ -373,15 +385,16 @@ async function recognizeAnswerFromImage(imageDataUrl: string) {
     draft.value.answer = result.text
     draft.value.answerBlocks = result.blocks
     dirty.value = true
-    const figures = result.figureCount ? `，含 ${result.figureCount} 张插图` : ''
-    const head = replaced ? '已用识别结果替换原答案' : '已识别并填入参考答案'
+    const figures = result.figureCount ? t('bank.toast.answerFigures', { n: result.figureCount }) : ''
+    const head = replaced ? t('bank.toast.answerReplaced') : t('bank.toast.answerFilled')
     if (result.warnings.length) {
-      toast(`${head}${figures}。需人工确认：${result.warnings.slice(0, 2).join('；')}`, 'warning', 6200)
+      const detail = result.warnings.slice(0, 2).join(t('bank.detailSeparator'))
+      toast(t('bank.toast.answerNeedsReview', { head, figures, detail }), 'warning', 6200)
     } else {
-      toast(`${head}${figures}，请核对后保存`, 'success', 4200)
+      toast(t('bank.toast.answerDone', { head, figures }), 'success', 4200)
     }
   } catch (error) {
-    toast('答案识别失败：' + ((error as Error).message || '未知错误'), 'error', 5200)
+    toast(t('bank.toast.answerFailed', { error: (error as Error).message || t('common.unknownError') }), 'error', 5200)
   } finally {
     answerRecognizing.value = false
   }
@@ -404,14 +417,14 @@ function validatePendingAnswer() {
   if (!state.papers.some((paper) => paper.id === pending.paperId)) {
     removePendingAnswer(pending.id)
     exitAnswerPick()
-    toast('答案区域信息已失效（原试卷可能已被删除），请回到「题目切割」重新框选', 'warning', 5600)
+    toast(t('bank.answerPick.regionInvalid'), 'warning', 5600)
     return
   }
   const region = pending.region
   if (!region || !(region.w > 0) || !(region.h > 0)) {
     removePendingAnswer(pending.id)
     exitAnswerPick()
-    toast('答案区域信息不完整，请回到「题目切割」重新框选', 'warning', 5600)
+    toast(t('bank.answerPick.regionIncomplete'), 'warning', 5600)
   }
 }
 
@@ -429,12 +442,12 @@ function startAnswerFill() {
   const target = answerPickTarget.value
   const pending = activePending.value
   if (!target || !pending) {
-    toast('请先在题库中点击一道题目作为目标', 'warning')
+    toast(t('bank.answerPick.pickTargetFirst'), 'warning')
     return
   }
   answerPickError.value = ''
   if (!state.settings.ai.apiKey.trim()) {
-    toast('请先在「设置」中填写 AI 接口与密钥', 'warning')
+    toast(t('bank.needApiKey'), 'warning')
     return
   }
   if (target.answer.trim()) {
@@ -454,46 +467,46 @@ function confirmAnswerOverwrite() {
 async function runAnswerFill(target: Question, pending: PendingAnswer) {
   answerPickBusy.value = true
   answerPickError.value = ''
-  answerPickStep.value = '正在读取答案区域原图…'
-  let step = '答案图读取'
+  answerPickStep.value = t('bank.answerPick.stepReadImage')
+  let step: MessageKey = 'bank.answerPick.phaseReadImage'
   try {
     const rawImage = await buildRegionsImage(pending.paperId, [pending.region])
-    if (!rawImage) throw new Error('无法读取答案区域原图，原试卷可能已被删除，请回到「题目切割」重新框选')
+    if (!rawImage) throw new Error(t('bank.answerPick.imageUnreadable'))
     const answerImage = await compressImage(rawImage).catch(() => rawImage)
     let question = state.questions.find((q) => q.id === target.id) ?? target
     const hadContent = hasContentDoc(question.content)
     if (!hadContent) {
-      step = '原图识别'
-      answerPickStep.value = '步骤 1/2 · 正在识别原图生成题目文档…'
+      step = 'bank.answerPick.phaseLayout'
+      answerPickStep.value = t('bank.answerPick.stepLayout')
       const layoutImage = await buildLayoutImage(question)
       const layout = await recognizeQuestionLayout(state.settings.ai, layoutImage)
       await updateQuestion(question.id, { content: layout.content, text: layout.text })
       question = state.questions.find((q) => q.id === target.id) ?? question
     }
-    step = '答案识别'
-    answerPickStep.value = hadContent ? '步骤 1/1 · 正在识别答案…' : '步骤 2/2 · 正在识别答案…'
+    step = 'bank.answerPick.phaseAnswer'
+    answerPickStep.value = hadContent ? t('bank.answerPick.stepAnswerOnly') : t('bank.answerPick.stepAnswer')
     const recognized = await recognizeAnswer(answerImage)
-    step = '答案写入'
-    answerPickStep.value = '正在写入参考答案…'
+    step = 'bank.answerPick.phaseWrite'
+    answerPickStep.value = t('bank.answerPick.stepWrite')
     await updateQuestion(question.id, { answer: recognized.text, answerBlocks: recognized.blocks, answerImage })
     const targetLabel = questionLabelOf(question)
     const pendingSubject = state.papers.find((p) => p.id === pending.paperId)?.subject
     const pendingNo =
       ui.pendingAnswers.filter((item) => item.paperId === pending.paperId).findIndex((item) => item.id === pending.id) + 1
-    const pendingLabel = answerTag(pendingSubject, pendingNo)
+    const pendingLabel = answerLabelOf(pendingSubject, pendingNo)
     removePendingAnswer(pending.id)
     exitAnswerPick()
     const remains = ui.pendingAnswers.length
-    const figures = recognized.figureCount ? `（含 ${recognized.figureCount} 张插图）` : ''
+    const figures = recognized.figureCount ? t('bank.answerPick.figures', { n: recognized.figureCount }) : ''
     toast(
       remains
-        ? `已写入「${targetLabel}」的参考答案${figures}并移除「${pendingLabel}」，还有 ${remains} 个答案框待处理`
-        : `已写入「${targetLabel}」的参考答案${figures}，请核对`,
+        ? t('bank.answerPick.doneWithRemains', { target: targetLabel, figures, pending: pendingLabel, n: remains })
+        : t('bank.answerPick.done', { target: targetLabel, figures }),
       'success',
       4200
     )
   } catch (error) {
-    answerPickError.value = `${step}失败：${(error as Error).message || '未知错误'}`
+    answerPickError.value = t('bank.answerPick.phaseFailed', { step: t(step), error: (error as Error).message || t('common.unknownError') })
     toast(answerPickError.value, 'error', 5600)
   } finally {
     answerPickBusy.value = false
@@ -512,7 +525,11 @@ function cancelAnswerPick() {
   removePendingAnswer(pending.id)
   exitAnswerPick()
   const remains = ui.pendingAnswers.length
-  toast(remains ? `已取消「${label}」，还有 ${remains} 个答案框待处理` : `已取消「${label}」`, 'info', 2800)
+  toast(
+    remains ? t('bank.answerPick.cancelledWithRemains', { label, n: remains }) : t('bank.answerPick.cancelled', { label }),
+    'info',
+    2800
+  )
 }
 
 function updateContent(doc: ContentDoc) {
@@ -542,8 +559,8 @@ function updateAnswerImage(value: string) {
   if (hadBlocks) {
     toast(
       next === undefined
-        ? '已移除答案原图，原有答案块（含插图）已清除'
-        : '已更换答案原图，原有答案块（含插图定位）已清除，可重新识别',
+        ? t('bank.toast.answerImageRemoved')
+        : t('bank.toast.answerImageReplaced'),
       'warning',
       4600
     )
@@ -603,7 +620,7 @@ function openPaper() {
       draft.value.content = merged.doc
       draft.value.text = docToPlainText(merged.doc)
       dirty.value = true
-      toast('已合并断行，保存后生效', 'success', 2400)
+      toast(t('bank.toast.linesMerged'), 'success', 2400)
     }
   }
   paperOpen.value = true
@@ -613,29 +630,32 @@ async function runLayout() {
   pendingLayout.value = false
   if (!draft.value) return
   if (!state.settings.ai.apiKey.trim()) {
-    toast('请先在「设置」中填写 AI 接口与密钥', 'warning')
+    toast(t('bank.needApiKey'), 'warning')
     return
   }
   const question = draft.value
   layoutBusy.value = true
-  layoutStatus.value = '正在准备高清题目图…'
+  layoutStatus.value = t('bank.toast.layoutPreparing')
   try {
     const recognitionImage = await buildLayoutImage(question)
-    layoutStatus.value = '正在请求视觉模型识别…'
+    layoutStatus.value = t('bank.toast.layoutRequesting')
     const result = await recognizeQuestionLayout(state.settings.ai, recognitionImage)
     if (!draft.value || draft.value.id !== question.id) return
     draft.value.content = result.content
     draft.value.text = result.text
     dirty.value = true
-    const summary = `${result.mathCount} 个公式、${result.figureCount} 个图形`
+    const summary = t('bank.toast.layoutSummary', {
+      math: t('bank.toast.layoutMath', { n: result.mathCount }),
+      figures: t('bank.toast.layoutFigures', { n: result.figureCount })
+    })
     if (result.warnings.length) {
-      const detail = result.warnings.slice(0, 2).join('；')
-      toast(`结构化完成：${summary}。需人工确认：${detail}`, 'warning', 6200)
+      const detail = result.warnings.slice(0, 2).join(t('bank.detailSeparator'))
+      toast(t('bank.toast.layoutNeedsReview', { summary, detail }), 'warning', 6200)
     } else {
-      toast(`结构化完成：${summary}，请对照原图校对`, 'success', 3800)
+      toast(t('bank.toast.layoutDone', { summary }), 'success', 3800)
     }
   } catch (error) {
-    toast('结构化识别失败：' + ((error as Error).message || '未知错误'), 'error', 6200)
+    toast(t('bank.toast.layoutFailed', { error: (error as Error).message || t('common.unknownError') }), 'error', 6200)
   } finally {
     layoutBusy.value = false
     layoutStatus.value = ''
@@ -644,15 +664,15 @@ async function runLayout() {
 
 function startBatchLayout() {
   if (batchLayout.running) {
-    toast('已有识别任务进行中，请等待完成或先停止', 'info')
+    toast(t('bank.toast.batchBusy'), 'info')
     return
   }
   if (!state.settings.ai.apiKey.trim()) {
-    toast('请先在「设置」中填写 AI 接口与密钥', 'warning')
+    toast(t('bank.needApiKey'), 'warning')
     return
   }
   if (!unrecognizedQuestions.value.length) {
-    toast('当前筛选结果里没有未识别的题目', 'info')
+    toast(t('bank.toast.batchNothing'), 'info')
     return
   }
   pendingBatch.value = true
@@ -668,7 +688,7 @@ async function runBatchLayout() {
     targets.map((q) => q.id),
     { withKnowledge: batchKnowledge.value, withAnalysis: batchAnalysis.value }
   )
-  if (!started) toast('已有识别任务进行中，请等待完成或先停止', 'info')
+  if (!started) toast(t('bank.toast.batchBusy'), 'info')
 }
 
 async function confirmDelete() {
@@ -682,7 +702,7 @@ async function confirmDelete() {
   }
   pendingDelete.value = null
   paperOpen.value = false
-  toast('已删除该题目', 'success')
+  toast(t('bank.toast.deleted'), 'success')
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -718,67 +738,71 @@ onBeforeUnmount(() => {
         <div class="filter-row">
           <div class="search-box">
             <Search :size="15" class="search-icon" />
-            <input v-model="keyword" class="search-input" placeholder="搜索题干、答案、知识点、试卷标题…" />
+            <input v-model="keyword" class="search-input" :placeholder="t('bank.toolbar.searchPlaceholder')" />
             <button v-if="keyword" class="clear-btn" @click="keyword = ''"><X :size="13" /></button>
           </div>
 
           <select v-model="filterSubject" class="select filter-select">
-            <option value="">全部学科</option>
-            <option v-for="s in subjectOptions" :key="s">{{ s }}</option>
+            <option value="">{{ t('bank.toolbar.allSubjects') }}</option>
+            <option v-for="s in subjectOptions" :key="s" :value="s">{{ subjectLabel(s) }}</option>
           </select>
           <select v-model="filterGrade" class="select filter-select">
-            <option value="">全部年级</option>
-            <option v-for="g in gradeOptions" :key="g">{{ g }}</option>
+            <option value="">{{ t('bank.toolbar.allGrades') }}</option>
+            <option v-for="g in gradeOptions" :key="g" :value="g">{{ gradeLabel(g) }}</option>
           </select>
           <select v-model="filterYear" class="select filter-select">
-            <option value="">全部年份</option>
-            <option v-for="y in years" :key="y" :value="String(y)">{{ y }} 年</option>
+            <option value="">{{ t('bank.toolbar.allYears') }}</option>
+            <option v-for="y in years" :key="y" :value="String(y)">{{ t('bank.toolbar.yearOption', { year: y }) }}</option>
           </select>
           <select v-model="filterType" class="select filter-select">
-            <option value="">全部题型</option>
-            <option v-for="t in QUESTION_TYPES" :key="t">{{ t }}</option>
+            <option value="">{{ t('bank.toolbar.allTypes') }}</option>
+            <option v-for="qt in QUESTION_TYPES" :key="qt" :value="qt">{{ typeLabel(qt) }}</option>
           </select>
 
           <div class="toolbar-spacer" />
 
-          <button class="btn btn-sm" @click="selectAllVisible"><Check :size="13" /> 全选结果</button>
+          <button class="btn btn-sm" @click="selectAllVisible"><Check :size="13" /> {{ t('bank.toolbar.selectAllResults') }}</button>
           <button class="btn btn-primary btn-sm" :disabled="!ui.exportIds.length" @click="goExport">
-            导出所选 {{ ui.exportIds.length ? `(${ui.exportIds.length})` : '' }}
+            {{ t('bank.toolbar.exportSelected') }} {{ ui.exportIds.length ? `(${ui.exportIds.length})` : '' }}
             <ArrowRight :size="13" />
           </button>
         </div>
 
         <div class="filter-row">
           <select v-model="filterKnowledge" class="select filter-select" style="width: 126px">
-            <option value="">全部知识点</option>
+            <option value="">{{ t('bank.toolbar.allKnowledge') }}</option>
             <option v-for="k in knowledgeOptions" :key="k">{{ k }}</option>
           </select>
           <select v-model="filterDifficulty" class="select filter-select" style="width: 108px">
-            <option value="">全部难度</option>
-            <option v-for="(label, level) in DIFFICULTY_LABELS" :key="level" :value="String(level)">{{ level }} · {{ label }}</option>
+            <option value="">{{ t('bank.toolbar.allDifficulty') }}</option>
+            <option v-for="(_label, level) in DIFFICULTY_LABELS" :key="level" :value="String(level)">{{ level }} · {{ difficultyLabel(Number(level)) }}</option>
           </select>
           <select v-model="filterPaper" class="select filter-select" style="width: 152px">
-            <option value="">全部出处</option>
+            <option value="">{{ t('bank.toolbar.allSources') }}</option>
             <option v-for="p in state.papers" :key="p.id" :value="String(p.id)">{{ p.title }}</option>
           </select>
           <select v-model="sortBy" class="select filter-select" style="width: 116px">
-            <option value="order">按录入顺序</option>
-            <option value="new">最新优先</option>
-            <option value="difficulty">难度从高到低</option>
+            <option value="order">{{ t('bank.toolbar.sortOrder') }}</option>
+            <option value="new">{{ t('bank.toolbar.sortNew') }}</option>
+            <option value="difficulty">{{ t('bank.toolbar.sortDifficulty') }}</option>
           </select>
-          <button v-if="hasFilters" class="btn btn-ghost btn-sm" @click="resetFilters"><RotateCcw :size="12" /> 重置筛选</button>
+          <button v-if="hasFilters" class="btn btn-ghost btn-sm" @click="resetFilters"><RotateCcw :size="12" /> {{ t('bank.toolbar.resetFilters') }}</button>
           <button class="btn btn-sm btn-ai" :disabled="batchLayout.running || !unrecognizedQuestions.length" @click="startBatchLayout">
             <Loader2 v-if="batchLayout.running" :size="12" class="spin" />
             <Sparkles v-else :size="12" />
-            {{ batchLayout.running ? `识别中 ${batchLayout.done}/${batchLayout.total}` : `一键识别 (${unrecognizedQuestions.length})` }}
+            {{
+              batchLayout.running
+                ? t('bank.toolbar.batchRunning', { done: batchLayout.done, total: batchLayout.total })
+                : t('bank.toolbar.batchStart', { n: unrecognizedQuestions.length })
+            }}
           </button>
           <button v-if="batchLayout.running" class="btn btn-ghost btn-sm" @click="requestStopBatchRecognition">
-            <X :size="12" /> 停止
+            <X :size="12" /> {{ t('bank.toolbar.stop') }}
           </button>
 
           <div class="toolbar-spacer" />
           <div v-if="ui.exportIds.length" class="selection-chip">
-            已选 <strong>{{ ui.exportIds.length }}</strong> 道题
+            {{ t('bank.toolbar.chipPrefix') }} <strong>{{ ui.exportIds.length }}</strong> {{ t('bank.toolbar.chipSuffix') }}
             <button class="chip-remove" @click="clearSelection"><X :size="11" /></button>
           </div>
         </div>
@@ -786,28 +810,32 @@ onBeforeUnmount(() => {
 
       <div class="list-header">
         <div class="hint">
-          共 <strong style="color: var(--text)">{{ filtered.length }}</strong> 道题
-          <span v-if="ui.exportIds.length"> · 已选 {{ ui.exportIds.length }} 道</span>
+          {{ t('bank.list.totalPrefix') }} <strong style="color: var(--text)">{{ filtered.length }}</strong>
+          {{ t('bank.list.totalSuffix', { n: filtered.length }) }}
+          <span v-if="ui.exportIds.length"> · {{ t('bank.list.selected', { n: ui.exportIds.length }) }}</span>
         </div>
         <div v-if="batchLayout.running" class="hint" style="display: flex; align-items: center; gap: 6px">
-          <Loader2 :size="12" class="spin" /> 正在识别 {{ batchLayout.current || '…' }}（{{ batchLayout.done }}/{{ batchLayout.total }}）
+          <Loader2 :size="12" class="spin" />
+          {{ t('bank.list.recognizing', { current: batchLayout.current || '…', done: batchLayout.done, total: batchLayout.total }) }}
         </div>
-        <div v-else-if="filtered.length" class="hint">第 {{ (pageIndex - 1) * pageSize + 1 }}–{{ Math.min(pageIndex * pageSize, filtered.length) }} 条</div>
+        <div v-else-if="filtered.length" class="hint">
+          {{ t('bank.list.range', { from: (pageIndex - 1) * pageSize + 1, to: Math.min(pageIndex * pageSize, filtered.length) }) }}
+        </div>
       </div>
 
       <div class="bank-content">
         <div v-if="!state.questions.length" class="empty">
           <div class="empty-icon"><Filter :size="24" /></div>
-          <div class="empty-title">题库是空的</div>
-          <div class="empty-desc">导入一份 PDF 或 Word 试卷并完成题目切割后，题目会自动进入这里，可检索、编辑与导出。</div>
-          <button class="btn btn-primary" @click="ui.view = 'import'">去导入试卷</button>
+          <div class="empty-title">{{ t('bank.empty.bankTitle') }}</div>
+          <div class="empty-desc">{{ t('bank.empty.bankDesc') }}</div>
+          <button class="btn btn-primary" @click="ui.view = 'import'">{{ t('bank.empty.goImport') }}</button>
         </div>
 
         <div v-else-if="!filtered.length" class="empty">
           <div class="empty-icon"><Search :size="24" /></div>
-          <div class="empty-title">没有匹配的题目</div>
-          <div class="empty-desc">尝试更换关键词，或减少筛选条件。</div>
-          <button class="btn" @click="resetFilters"><RotateCcw :size="14" /> 重置筛选</button>
+          <div class="empty-title">{{ t('bank.empty.noMatchTitle') }}</div>
+          <div class="empty-desc">{{ t('bank.empty.noMatchDesc') }}</div>
+          <button class="btn" @click="resetFilters"><RotateCcw :size="14" /> {{ t('bank.toolbar.resetFilters') }}</button>
         </div>
 
         <div v-else class="q-grid">
@@ -830,33 +858,33 @@ onBeforeUnmount(() => {
               <div class="q-thumb-index">{{ questionLabelOf(question) }}</div>
             </div>
             <div class="q-body">
-              <div class="q-text" v-html="question.text ? highlight(snippet(question.text)) : '<span style=\'color:#a2a9b8\'>（暂无题干文字，可生成题目文档）</span>'"></div>
+              <div class="q-text" v-html="question.text ? highlight(snippet(question.text)) : emptyTextHtml()"></div>
               <div class="q-meta">
-                <span class="badge" :class="TYPE_BADGE_CLASS[question.question_type] || 'badge-gray'">{{ question.question_type }}</span>
+                <span class="badge" :class="TYPE_BADGE_CLASS[question.question_type] || 'badge-gray'">{{ typeLabel(question.question_type) }}</span>
                 <span class="chip" style="height: 20px; font-size: 11px">
-                  <Star :size="10" /> 难度 {{ question.difficulty }}
+                  <Star :size="10" /> {{ t('bank.card.difficulty', { n: question.difficulty }) }}
                 </span>
                 <span v-if="question.knowledge.length" class="chip" style="height: 20px; font-size: 11px; max-width: 116px; overflow: hidden; text-overflow: ellipsis">
                   <Tag :size="10" /> {{ question.knowledge[0] }}{{ question.knowledge.length > 1 ? ` +${question.knowledge.length - 1}` : '' }}
                 </span>
-                <span v-if="question.answer.trim()" class="badge badge-amber">已有答案</span>
+                <span v-if="question.answer.trim()" class="badge badge-amber">{{ t('bank.card.hasAnswer') }}</span>
                 <span
                   v-if="!(paperOf(question)?.subject ?? '').trim()"
                   class="badge badge-gray"
-                  title="该题所属试卷未填写学科，可到「试卷导入」编辑试卷补填"
+                  :title="t('bank.card.noSubjectTitle')"
                 >
-                  未设学科
+                  {{ t('bank.card.noSubject') }}
                 </span>
               </div>
-              <div class="q-source">{{ paperOf(question)?.title || '未关联试卷' }}</div>
+              <div class="q-source">{{ paperOf(question)?.title || t('bank.noLinkedPaper') }}</div>
             </div>
           </div>
         </div>
 
         <div v-if="totalPages > 1" class="pager">
-          <button class="btn btn-sm" :disabled="pageIndex <= 1" @click="pageIndex = Math.max(1, pageIndex - 1)"><ChevronLeft :size="13" /> 上一页</button>
-          <span class="hint">第 {{ pageIndex }} / {{ totalPages }} 页</span>
-          <button class="btn btn-sm" :disabled="pageIndex >= totalPages" @click="pageIndex = Math.min(totalPages, pageIndex + 1)">下一页 <ChevronRight :size="13" /></button>
+          <button class="btn btn-sm" :disabled="pageIndex <= 1" @click="pageIndex = Math.max(1, pageIndex - 1)"><ChevronLeft :size="13" /> {{ t('bank.list.prevPage') }}</button>
+          <span class="hint">{{ t('bank.list.pageOf', { page: pageIndex, total: totalPages }) }}</span>
+          <button class="btn btn-sm" :disabled="pageIndex >= totalPages" @click="pageIndex = Math.min(totalPages, pageIndex + 1)">{{ t('bank.list.nextPage') }} <ChevronRight :size="13" /></button>
         </div>
       </div>
     </div>
@@ -864,8 +892,8 @@ onBeforeUnmount(() => {
     <aside class="inspector">
       <div v-if="!draft" class="empty" style="padding: 60px 16px">
         <div class="empty-icon"><Brain :size="22" /></div>
-        <div class="empty-title">题目编辑面板</div>
-        <div class="empty-desc">从左侧选择一道题目，可将题目结构化为「文字 + 公式 + 图形」，校对后可在题目文档中完善答案、知识点与解析。</div>
+        <div class="empty-title">{{ t('bank.inspector.emptyTitle') }}</div>
+        <div class="empty-desc">{{ t('bank.inspector.emptyDesc') }}</div>
       </div>
 
       <template v-else>
@@ -873,33 +901,35 @@ onBeforeUnmount(() => {
           <div style="min-width: 0">
             <div style="font-size: 13px; font-weight: 650; display: flex; align-items: center; gap: 6px">
               {{ draft ? questionLabelOf(draft) : '' }}
-              <span v-if="dirty" class="badge badge-amber">未保存</span>
+              <span v-if="dirty" class="badge badge-amber">{{ t('bank.inspector.unsaved') }}</span>
             </div>
-            <div class="hint" style="margin-top: 3px">{{ activePaper?.title || '未关联试卷' }}</div>
+            <div class="hint" style="margin-top: 3px">{{ activePaper?.title || t('bank.noLinkedPaper') }}</div>
           </div>
           <button class="btn btn-primary btn-sm" :disabled="saving || !dirty" @click="saveDraft()">
             <Loader2 v-if="saving" :size="12" class="spin" />
-            <Save v-else :size="12" /> 保存
+            <Save v-else :size="12" /> {{ t('common.save') }}
           </button>
         </div>
 
         <div class="content-pane">
-          <div v-if="draft.image" class="editor-image" title="点击放大查看" @click="imagePreview = draft.image">
-            <img :src="draft.image" alt="题目原图" />
+          <div v-if="draft.image" class="editor-image" :title="t('bank.inspector.zoomTitle')" @click="imagePreview = draft.image">
+            <img :src="draft.image" :alt="t('bank.inspector.imageAlt')" />
           </div>
-          <div v-else class="editor-image-placeholder">暂无题目原图</div>
+          <div v-else class="editor-image-placeholder">{{ t('bank.inspector.noImage') }}</div>
 
           <div class="content-toolbar">
             <div class="hint">
               <template v-if="hasDraftContent">
-                {{ contentStats?.paragraphs }} 段 · {{ contentStats?.math }} 公式 · {{ contentStats?.figures }} 图形
-                <span v-if="contentStats?.unresolved"> · {{ contentStats?.unresolved }} 个待确认</span>
+                {{ t('bank.inspector.statParagraphs', { n: contentStats?.paragraphs ?? 0 }) }} ·
+                {{ t('bank.inspector.statMath', { n: contentStats?.math ?? 0 }) }} ·
+                {{ t('bank.inspector.statFigures', { n: contentStats?.figures ?? 0 }) }}
+                <span v-if="contentStats?.unresolved"> · {{ t('bank.inspector.statUnresolved', { n: contentStats.unresolved }) }}</span>
               </template>
-              <template v-else>尚未识别题目文档</template>
+              <template v-else>{{ t('bank.inspector.notRecognized') }}</template>
             </div>
             <div class="content-toolbar-actions">
               <button class="btn btn-primary btn-sm" @click="openPaper">
-                <Maximize2 :size="12" /> 打开题目文档
+                <Maximize2 :size="12" /> {{ t('bank.inspector.openPaper') }}
               </button>
             </div>
           </div>
@@ -908,75 +938,75 @@ onBeforeUnmount(() => {
             <ContentEditor :model-value="editorContent" variant="paper" readonly />
           </div>
           <div v-else class="content-empty" @click="openPaper">
-            <div style="font-size: 13px; font-weight: 600">还没有题目文档内容</div>
-            <div class="hint">打开文档后点「AI识别」生成，也可以直接在文档中编辑。</div>
+            <div style="font-size: 13px; font-weight: 600">{{ t('bank.inspector.noContentTitle') }}</div>
+            <div class="hint">{{ t('bank.inspector.noContentDesc') }}</div>
           </div>
-          <div class="hint" style="margin-top: 6px">AI 识别、校对与参考答案都在题目文档中完成。</div>
+          <div class="hint" style="margin-top: 6px">{{ t('bank.inspector.paperHint') }}</div>
         </div>
 
         <div class="inspector-attrs">
-          <div class="inspector-attrs-title">题目属性</div>
+          <div class="inspector-attrs-title">{{ t('bank.inspector.attrsTitle') }}</div>
           <label class="inspector-attr">
-            <span>题型</span>
+            <span>{{ t('bank.inspector.attrType') }}</span>
             <select class="select" :value="draft.question_type" @change="onQuestionTypeChange">
-              <option v-for="type in QUESTION_TYPES" :key="type" :value="type">{{ type }}</option>
+              <option v-for="type in QUESTION_TYPES" :key="type" :value="type">{{ typeLabel(type) }}</option>
             </select>
           </label>
           <label class="inspector-attr">
-            <span>难度</span>
+            <span>{{ t('bank.inspector.attrDifficulty') }}</span>
             <select class="select" :value="draft.difficulty" @change="onDifficultyChange">
-              <option v-for="level in 5" :key="level" :value="level">{{ level }} · {{ DIFFICULTY_LABELS[level] }}</option>
+              <option v-for="level in 5" :key="level" :value="level">{{ level }} · {{ difficultyLabel(level) }}</option>
             </select>
           </label>
         </div>
 
         <div class="editor-actions">
-          <button class="btn btn-danger btn-sm" @click="pendingDelete = draft"><Trash2 :size="13" /> 删除题目</button>
-          <span class="hint" style="margin-left: auto"><span class="kbd">Ctrl</span> + <span class="kbd">S</span> 保存</span>
+          <button class="btn btn-danger btn-sm" @click="pendingDelete = draft"><Trash2 :size="13" /> {{ t('bank.inspector.deleteQuestion') }}</button>
+          <span class="hint" style="margin-left: auto"><span class="kbd">Ctrl</span> + <span class="kbd">S</span> {{ t('bank.inspector.saveShortcut') }}</span>
         </div>
       </template>
     </aside>
 
-    <AppModal v-if="pendingDelete" title="删除这道题目？" @close="pendingDelete = null">
-      <template #description>题目图片与文字记录将被移除，无法恢复。</template>
-      <div class="hint">{{ snippet(pendingDelete.text || '（无文字）') }}</div>
+    <AppModal v-if="pendingDelete" :title="t('bank.modal.deleteTitle')" @close="pendingDelete = null">
+      <template #description>{{ t('bank.modal.deleteDesc') }}</template>
+      <div class="hint">{{ snippet(pendingDelete.text || t('bank.noText')) }}</div>
       <template #actions>
-        <button class="btn" @click="pendingDelete = null">取消</button>
-        <button class="btn btn-danger" @click="confirmDelete"><Trash2 :size="14" /> 确认删除</button>
+        <button class="btn" @click="pendingDelete = null">{{ t('common.cancel') }}</button>
+        <button class="btn btn-danger" @click="confirmDelete"><Trash2 :size="14" /> {{ t('bank.modal.deleteConfirm') }}</button>
       </template>
     </AppModal>
 
-    <AppModal v-if="pendingLayout" title="重新识别这道题？" :z-index="95" @close="pendingLayout = false">
-      <template #description>当前的结构化内容会被新的识别结果覆盖，原图与答案不受影响。</template>
+    <AppModal v-if="pendingLayout" :title="t('bank.modal.relayoutTitle')" :z-index="95" @close="pendingLayout = false">
+      <template #description>{{ t('bank.modal.relayoutDesc') }}</template>
       <template #actions>
-        <button class="btn" @click="pendingLayout = false">取消</button>
-        <button class="btn btn-primary" @click="runLayout"><Sparkles :size="14" /> 重新识别</button>
+        <button class="btn" @click="pendingLayout = false">{{ t('common.cancel') }}</button>
+        <button class="btn btn-primary" @click="runLayout"><Sparkles :size="14" /> {{ t('bank.modal.relayoutConfirm') }}</button>
       </template>
     </AppModal>
 
-    <AppModal v-if="pendingBatch" title="一键识别未识别的题目？" @close="pendingBatch = false">
+    <AppModal v-if="pendingBatch" :title="t('bank.modal.batchTitle')" @close="pendingBatch = false">
       <template #description>
-        将对当前筛选结果中 {{ unrecognizedQuestions.length }} 道未识别题目逐题调用视觉模型生成题目文档，已识别的题目会自动跳过，可随时停止。
+        {{ t('bank.modal.batchDesc', { n: unrecognizedQuestions.length }) }}
       </template>
       <div class="batch-options">
         <label class="batch-option">
           <input v-model="batchKnowledge" type="checkbox" />
           <span>
-            <strong>同时生成知识点</strong>
-            <em>识别后调用 AI 推荐知识点，并写入题目与知识点库</em>
+            <strong>{{ t('bank.modal.batchKnowledge') }}</strong>
+            <em>{{ t('bank.modal.batchKnowledgeDesc') }}</em>
           </span>
         </label>
         <label class="batch-option">
           <input v-model="batchAnalysis" type="checkbox" />
           <span>
-            <strong>同时生成题目理解</strong>
-            <em>识别后调用 AI 生成题目理解，便于备课与讲解</em>
+            <strong>{{ t('bank.modal.batchAnalysis') }}</strong>
+            <em>{{ t('bank.modal.batchAnalysisDesc') }}</em>
           </span>
         </label>
       </div>
       <template #actions>
-        <button class="btn" @click="pendingBatch = false">取消</button>
-        <button class="btn btn-primary" @click="runBatchLayout"><Sparkles :size="14" /> 开始识别</button>
+        <button class="btn" @click="pendingBatch = false">{{ t('common.cancel') }}</button>
+        <button class="btn btn-primary" @click="runBatchLayout"><Sparkles :size="14" /> {{ t('bank.modal.batchConfirm') }}</button>
       </template>
     </AppModal>
 
@@ -984,40 +1014,40 @@ onBeforeUnmount(() => {
       <div class="answer-pick-main">
         <div class="answer-pick-mode">
           <Sparkles :size="13" />
-          正在为 <span class="answer-pick-tag">{{ activePendingLabel }}</span> 选择题目
+          {{ t('bank.answerPick.modePrefix') }} <span class="answer-pick-tag">{{ activePendingLabel }}</span> {{ t('bank.answerPick.modeSuffix') }}
           <span class="answer-pick-source">
-            第 {{ activePending.region.page }} 页 · 「{{ answerPickPaper?.title || '已删除的试卷' }}」
+            {{ t('bank.answerPick.source', { page: activePending.region.page, title: answerPickPaper?.title || t('bank.answerPick.deletedPaper') }) }}
           </span>
-          <span v-if="ui.pendingAnswers.length > 1" class="answer-pick-count">共 {{ ui.pendingAnswers.length }} 个答案框待处理</span>
+          <span v-if="ui.pendingAnswers.length > 1" class="answer-pick-count">{{ t('bank.answerPick.pendingCount', { n: ui.pendingAnswers.length }) }}</span>
         </div>
         <div v-if="answerPickBusy" class="answer-pick-progress">
           <Loader2 :size="13" class="spin" />
-          <span>{{ answerPickStep || '正在处理…' }}</span>
+          <span>{{ answerPickStep || t('common.processing') }}</span>
         </div>
         <div v-else-if="answerPickError" class="answer-pick-error">{{ answerPickError }}</div>
         <div v-else class="answer-pick-target">
-          {{ answerPickSummary || '点击下方任意题目卡片，选中要填入答案的题目' }}
+          {{ answerPickSummary || t('bank.answerPick.targetHint') }}
         </div>
       </div>
       <div class="answer-pick-actions">
-        <button class="btn btn-ghost btn-sm" :disabled="answerPickBusy" @click="cancelAnswerPick">取消</button>
+        <button class="btn btn-ghost btn-sm" :disabled="answerPickBusy" @click="cancelAnswerPick">{{ t('common.cancel') }}</button>
         <button class="btn btn-primary btn-sm" :disabled="!answerPickTargetId || answerPickBusy" @click="startAnswerFill">
           <Loader2 v-if="answerPickBusy" :size="13" class="spin" />
           <Sparkles v-else :size="13" />
-          识别并填入
+          {{ t('bank.answerPick.fill') }}
         </button>
       </div>
     </div>
 
-    <AppModal v-if="answerOverwriteTarget" title="覆盖已有答案？" @close="answerOverwriteTarget = null">
+    <AppModal v-if="answerOverwriteTarget" :title="t('bank.modal.overwriteTitle')" @close="answerOverwriteTarget = null">
       <template #description>
-        「{{ answerOverwriteLabel }}」已有参考答案，识别结果将覆盖原答案。
+        {{ t('bank.modal.overwriteDesc', { label: answerOverwriteLabel }) }}
       </template>
-      <div class="hint">{{ snippet(answerOverwriteTarget.text || '（无题干文字）') }}</div>
+      <div class="hint">{{ snippet(answerOverwriteTarget.text || t('bank.noStemText')) }}</div>
       <template #actions>
-        <button class="btn" @click="answerOverwriteTarget = null">取消</button>
+        <button class="btn" @click="answerOverwriteTarget = null">{{ t('common.cancel') }}</button>
         <button class="btn btn-primary" @click="confirmAnswerOverwrite">
-          <Sparkles :size="14" /> 覆盖并识别
+          <Sparkles :size="14" /> {{ t('bank.modal.overwriteConfirm') }}
         </button>
       </template>
     </AppModal>
@@ -1049,7 +1079,7 @@ onBeforeUnmount(() => {
       @close="paperOpen = false"
     />
 
-    <AppModal v-if="imagePreview" title="题目图片预览" :width="720" @close="imagePreview = ''">
+    <AppModal v-if="imagePreview" :title="t('bank.modal.imagePreview')" :width="720" @close="imagePreview = ''">
       <img :src="imagePreview" style="width: 100%; border-radius: 8px; border: 1px solid var(--border)" />
     </AppModal>
   </div>
@@ -1462,6 +1492,9 @@ onBeforeUnmount(() => {
 .inspector-attr > span {
   width: 30px;
   flex-shrink: 0;
+}
+:lang(en) .inspector-attr > span {
+  width: 58px;
 }
 .inspector-attr .select {
   flex: 1;

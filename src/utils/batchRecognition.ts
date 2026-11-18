@@ -13,6 +13,7 @@ import { questionTag } from './label'
 import { hasContentDoc, recognizeQuestionLayout } from './layout'
 import { buildLayoutImage } from './layoutImage'
 import { toast } from '../composables/toast'
+import { t } from '../i18n'
 
 export interface BatchRecognitionOptions {
   withKnowledge: boolean
@@ -53,7 +54,7 @@ async function runBatch(ids: number[], options: BatchRecognitionOptions, runId: 
       const question = state.questions.find((q) => q.id === ids[i])
       if (!question) {
         // 任务开始后被删除的题目直接跳过
-        batchLayout.failed.push(`题目 #${ids[i]}（已删除）`)
+        batchLayout.failed.push(t('cut.batch.deletedId', { id: ids[i] }))
         processed += 1
         batchLayout.done = processed
         continue
@@ -66,7 +67,7 @@ async function runBatch(ids: number[], options: BatchRecognitionOptions, runId: 
         const result = await recognizeQuestionLayout(state.settings.ai, image)
         if (!isActive(runId)) return
         if (!state.questions.some((q) => q.id === question.id)) {
-          batchLayout.failed.push(`${label}（已删除）`)
+          batchLayout.failed.push(t('cut.batch.deletedLabel', { label }))
           processed += 1
           batchLayout.done = processed
           continue
@@ -78,7 +79,7 @@ async function runBatch(ids: number[], options: BatchRecognitionOptions, runId: 
         const grade = paper?.grade ?? ''
 
         if (options.withKnowledge) {
-          batchLayout.current = `${label} · 生成知识点`
+          batchLayout.current = t('cut.batch.knowledge', { label })
           try {
             const names = await recommendKnowledge(
               state.settings.ai,
@@ -96,7 +97,7 @@ async function runBatch(ids: number[], options: BatchRecognitionOptions, runId: 
         }
 
         if (options.withAnalysis) {
-          batchLayout.current = `${label} · 生成题目理解`
+          batchLayout.current = t('cut.batch.analysis', { label })
           try {
             patch.analysis = await analyzeQuestion(state.settings.ai, {
               text: result.text,
@@ -126,9 +127,15 @@ async function runBatch(ids: number[], options: BatchRecognitionOptions, runId: 
       const question = state.questions.find((q) => q.id === id)
       return !!question && !hasContentDoc(question.content)
     }).length
-    const head = stopped ? `已停止一键识别：成功 ${ok} 道` : `一键识别完成：成功 ${ok} 道`
-    const tail = failed ? `，失败 ${failed} 道（${batchLayout.failed.slice(0, 3).join('、')}${failed > 3 ? ' 等' : ''}）` : ''
-    const rest = stopped && remain ? `，还有 ${remain} 道未识别` : ''
+    const head = stopped ? t('cut.batch.stoppedHead', { n: ok }) : t('cut.batch.doneHead', { n: ok })
+    const tail = failed
+      ? t('cut.batch.failedTail', {
+          n: failed,
+          list: batchLayout.failed.slice(0, 3).join(t('cut.listSep')),
+          more: failed > 3 ? t('cut.batch.more') : ''
+        })
+      : ''
+    const rest = stopped && remain ? t('cut.batch.remain', { n: remain }) : ''
     toast(`${head}${tail}${rest}`, failed ? 'warning' : 'success', 6200)
   } finally {
     if (batchLayout.runId === runId) resetBatchLayout()

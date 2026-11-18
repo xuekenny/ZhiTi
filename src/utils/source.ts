@@ -1,4 +1,5 @@
 import { repositories } from '../db'
+import { t } from '../i18n'
 import type { PaperSourceType, Region } from '../types'
 import {
   cacheDocument,
@@ -92,7 +93,7 @@ export async function getPaperSource(paperId: number): Promise<PaperSource> {
   if (cached) return cached
   const promise = (async () => {
     const stored = await repositories.savedFile(paperId)
-    if (!stored) throw new Error('找不到原始试卷文件，请重新导入该试卷')
+    if (!stored) throw new Error(t('import.errors.sourceMissing'))
     if (detectKind(stored.data, stored.name) === 'docx') {
       return wrapDocx(await renderDocxSource(stored.data))
     }

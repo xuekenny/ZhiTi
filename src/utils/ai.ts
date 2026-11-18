@@ -1,4 +1,5 @@
 import type { AiSettings } from '../types'
+import { t } from '../i18n'
 import { normalizeNumberedList } from './text'
 
 export type ChatContentPart =
@@ -17,22 +18,93 @@ export interface ChatOptions {
   model?: string
 }
 
-export const PROVIDER_PRESETS: Record<
-  Exclude<AiSettings['provider'], 'custom'>,
-  { label: string; baseUrl: string; model: string; visionModel: string }
-> = {
-  deepseek: { label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', visionModel: '' },
+export interface ProviderPreset {
+  label: string
+  baseUrl: string
+  model: string
+  visionModel: string
+  /** 下拉候选模型（仍可手动输入其他模型名） */
+  models: string[]
+  /** 获取 API 密钥的页面 */
+  keyUrl?: string
+}
+
+export const PROVIDER_PRESETS: Record<Exclude<AiSettings['provider'], 'custom'>, ProviderPreset> = {
+  moerouter: {
+    label: 'MoeRouter',
+    baseUrl: 'https://moerouter.com/v1',
+    model: 'gpt-6.1-terra',
+    visionModel: 'deepseek-v4.1-flash',
+    // 仅列出支持 OpenAI Chat Completions 接口的模型；仅走 Anthropic 协议的模型在这里无法调用
+    models: [
+      'gpt-6.1-terra',
+      'gpt-6.1-sol',
+      'gpt-6.2-sol',
+      'gpt-6.2-astra',
+      'gpt-6-luna',
+      'deepseek-v4.1-flash',
+      'deepseek-v4-flash',
+      'gemini-3.8-flash',
+      'gemini-4-hydrogen',
+      'gemini-4-argon'
+    ],
+    keyUrl: 'https://moerouter.com'
+  },
+  deepseek: {
+    label: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    model: 'deepseek-chat',
+    visionModel: '',
+    models: ['deepseek-chat', 'deepseek-reasoner'],
+    keyUrl: 'https://platform.deepseek.com'
+  },
   qwen: {
     label: '通义千问',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     model: 'qwen-plus',
-    visionModel: 'qwen-vl-max'
+    visionModel: 'qwen-vl-max',
+    models: ['qwen-plus', 'qwen-max', 'qwen-turbo', 'qwen-vl-max', 'qwen-vl-plus'],
+    keyUrl: 'https://bailian.console.aliyun.com'
+  }
+}
+
+/** 读取接口提供的模型列表（GET /models），只保留可走 Chat Completions 的文本/多模态模型 */
+export async function listModels(config: Pick<AiSettings, 'baseUrl' | 'apiKey'>): Promise<string[]> {
+  if (!config.apiKey) throw new Error(t('settings.ai.needKey'))
+  const baseUrl = config.baseUrl.replace(/\/+$/, '')
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 15000)
+  try {
+    const response = await fetch(`${baseUrl}/models`, {
+      headers: { Authorization: `Bearer ${config.apiKey}` },
+      signal: controller.signal
+    })
+    if (response.status === 401) throw new Error(t('settings.errors.invalidKey'))
+    if (!response.ok) throw new Error(t('settings.errors.modelsFailed', { status: response.status }))
+    const data = await response.json()
+    const items: any[] = Array.isArray(data?.data) ? data.data : []
+    const ids = items
+      .filter((item) => {
+        const endpoints = item?.supported_endpoint_types
+        // 接口若标注了支持的协议，只保留 OpenAI 兼容的模型
+        if (Array.isArray(endpoints) && endpoints.length && !endpoints.includes('openai')) return false
+        return !/image|embedding|tts|whisper|rerank|moderation|auto-review/i.test(String(item?.id ?? ''))
+      })
+      .map((item) => String(item.id))
+      .filter(Boolean)
+    return [...new Set(ids)].sort()
+  } catch (error) {
+    if ((error as Error).name === 'AbortError') throw new Error(t('settings.errors.modelsTimeout'))
+    if ((error as Error).message.includes('Failed to fetch')) throw new Error(t('settings.errors.unreachable'))
+    throw error
+  } finally {
+    clearTimeout(timer)
   }
 }
 
 /** 通用对话请求，content 支持纯文本或 OpenAI 多模态数组（文字 + 图片） */
 export async function chat(config: AiSettings, messages: ChatMessage[], options: ChatOptions = {}): Promise<string> {
-  if (!config.apiKey) throw new Error('尚未配置 API 密钥，请先在「设置」中填写 AI 接口信息')
+  if (!config.apiKey) throw new Error(t('settings.errors.noApiKey'))
   const baseUrl = config.baseUrl.replace(/\/+$/, '')
   const timeoutMs = options.timeoutMs ?? 45000
   const usesVision = messages.some(
@@ -58,14 +130,12 @@ export async function chat(config: AiSettings, messages: ChatMessage[], options:
     })
     if (!response.ok) {
       const detail = await response.text().catch(() => '')
-      if (response.status === 401) throw new Error('API 密钥无效（401），请检查密钥是否正确')
-      if (response.status === 429) throw new Error('调用频率或额度受限（429），请稍后再试')
+      if (response.status === 401) throw new Error(t('settings.errors.invalidKey'))
+      if (response.status === 429) throw new Error(t('settings.errors.rateLimited'))
       if (usesVision && (response.status === 400 || response.status === 415 || response.status === 422)) {
-        throw new Error(
-          `当前模型可能不支持图片输入（${response.status}），请在「设置」中填写支持识图的视觉模型。${detail.slice(0, 120)}`
-        )
+        throw new Error(t('settings.errors.visionUnsupported', { status: response.status, detail: detail.slice(0, 120) }))
       }
-      throw new Error(`AI 接口返回 ${response.status}：${detail.slice(0, 160)}`)
+      throw new Error(t('settings.errors.httpError', { status: response.status, detail: detail.slice(0, 160) }))
     }
     const data = await response.json()
     const raw = data?.choices?.[0]?.message?.content
@@ -75,15 +145,13 @@ export async function chat(config: AiSettings, messages: ChatMessage[], options:
         : Array.isArray(raw)
           ? raw.map((part: any) => (typeof part === 'string' ? part : part?.text ?? '')).join('')
           : ''
-    if (!content.trim()) throw new Error('AI 接口未返回内容')
+    if (!content.trim()) throw new Error(t('settings.errors.emptyReply'))
     return content.trim()
   } catch (error) {
     if ((error as Error).name === 'AbortError') {
-      throw new Error(`AI 接口响应超时（${Math.round(timeoutMs / 1000)} 秒），请稍后重试`)
+      throw new Error(t('settings.errors.timeout', { seconds: Math.round(timeoutMs / 1000) }))
     }
-    if ((error as Error).message.includes('Failed to fetch')) {
-      throw new Error('无法连接 AI 接口：可能是网络不可达或浏览器跨域限制。桌面版（Tauri）中调用不受此限制')
-    }
+    if ((error as Error).message.includes('Failed to fetch')) throw new Error(t('settings.errors.unreachable'))
     throw error
   } finally {
     clearTimeout(timer)

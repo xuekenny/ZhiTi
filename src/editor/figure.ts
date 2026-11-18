@@ -1,6 +1,7 @@
 import { Node } from '@tiptap/core'
 import { VueNodeViewRenderer } from '@tiptap/vue-3'
 import FigureNodeView from '../components/FigureNodeView.vue'
+import { t } from '../i18n'
 
 /** 题目中的图形/表格：从原图裁剪出的位图，原子节点 */
 export const Figure = Node.create({
@@ -51,7 +52,7 @@ export const Figure = Node.create({
         'data-gap-before': node.attrs.gapBefore,
         class: 'figure-block'
       },
-      ['img', { src: node.attrs.src, alt: '题目图形' }]
+      ['img', { src: node.attrs.src, alt: t('paper.figure.alt') }]
     ]
   },
 

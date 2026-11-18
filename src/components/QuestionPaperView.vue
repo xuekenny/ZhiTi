@@ -8,6 +8,7 @@ import { hasContentDoc } from '../utils/layout'
 import { renderMathText } from '../utils/mathText'
 import { normalizeNumberedList } from '../utils/text'
 import { toast } from '../composables/toast'
+import { t } from '../i18n'
 import type { AnswerBlock, AnswerImageBlock, ContentDoc } from '../types'
 
 const props = defineProps<{
@@ -122,7 +123,7 @@ function readAsDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
-    reader.onerror = () => reject(reader.error ?? new Error('图片读取失败'))
+    reader.onerror = () => reject(reader.error ?? new Error(t('paper.answer.toast.readFailed')))
     reader.readAsDataURL(file)
   })
 }
@@ -130,15 +131,15 @@ function readAsDataUrl(file: Blob): Promise<string> {
 /** 只把图片放进答案框供预览，不自动识别；识别由「AI 识别答案」触发 */
 async function useAnswerImage(file: Blob) {
   if (!file.type.startsWith('image/')) {
-    toast('请选择图片文件', 'warning')
+    toast(t('paper.answer.toast.notImage'), 'warning')
     return
   }
   try {
     const raw = await readAsDataUrl(file)
-    if (!raw) throw new Error('图片读取失败')
+    if (!raw) throw new Error(t('paper.answer.toast.readFailed'))
     applyAnswerImage(await compressImage(raw))
   } catch {
-    toast('图片读取失败，请重试', 'error')
+    toast(t('paper.answer.toast.readFailedRetry'), 'error')
   }
 }
 
@@ -162,9 +163,7 @@ function applyAnswerImage(dataUrl: string) {
   }
   emit('update:answer-image', dataUrl)
   toast(
-    compare.value
-      ? '已放入答案原图（右侧「答案原图」区块），点「AI 识别答案」可转为文字'
-      : '已放入答案原图，点「显示右栏」查看，再点「AI 识别答案」可转为文字',
+    compare.value ? t('paper.answer.toast.placedCompare') : t('paper.answer.toast.placedHidden'),
     'info',
     3600
   )
@@ -178,9 +177,7 @@ function confirmReplaceWithImage() {
   emit('update:answer-image', dataUrl)
   emit('update:answer', '')
   toast(
-    compare.value
-      ? '已用图片替换答案文字，图片在右侧「答案原图」，可点「AI 识别答案」转回文字'
-      : '已用图片替换答案文字，点「显示右栏」查看答案原图',
+    compare.value ? t('paper.answer.toast.replacedCompare') : t('paper.answer.toast.replacedHidden'),
     'info',
     3600
   )
@@ -195,7 +192,7 @@ function removeAnswerImage() {
 function recognizeAnswer() {
   if (props.answerRecognizing) return
   if (!props.answerImage) {
-    toast('请先粘贴或导入答案图片，再点「AI 识别答案」', 'warning', 3600)
+    toast(t('paper.answer.toast.needImage'), 'warning', 3600)
     return
   }
   emit('recognize-answer', props.answerImage)
@@ -279,21 +276,21 @@ onMounted(() =>
         <header class="paper-head">
           <div class="paper-title">
             <span>{{ props.title }}</span>
-            <span v-if="props.dirty" class="badge badge-amber">未保存</span>
+            <span v-if="props.dirty" class="badge badge-amber">{{ t('paper.unsaved') }}</span>
           </div>
           <div class="paper-actions">
             <button class="btn btn-ghost btn-sm" @click="compare = !compare">
-              <Columns2 :size="14" /> {{ compare ? '只看排版' : '对照原图' }}
+              <Columns2 :size="14" /> {{ compare ? t('paper.layoutOnly') : t('paper.compare') }}
             </button>
             <button class="btn btn-ghost btn-sm" :disabled="props.recognizing" @click="emit('relayout')">
               <Loader2 v-if="props.recognizing" :size="14" class="spin" />
               <Sparkles v-else :size="14" />
-              {{ hasContent ? '重新识别' : 'AI识别' }}
+              {{ hasContent ? t('paper.rerecognize') : t('paper.aiRecognize') }}
             </button>
             <button class="btn btn-primary btn-sm" :disabled="!props.dirty" @click="emit('save')">
-              <Save :size="14" /> 保存
+              <Save :size="14" /> {{ t('common.save') }}
             </button>
-            <button class="btn btn-ghost btn-icon" title="关闭" @click="emit('close')">
+            <button class="btn btn-ghost btn-icon" :title="t('common.close')" @click="emit('close')">
               <X :size="16" />
             </button>
           </div>
@@ -303,12 +300,12 @@ onMounted(() =>
           <div class="paper-stage">
             <article class="paper-sheet">
               <div v-if="!hasContent" class="paper-doc-empty">
-                <div class="paper-doc-empty-title">尚未生成题目文档</div>
-                <div class="paper-doc-empty-desc">点击「AI识别」把原图转成可编辑的排版，也可以直接在下方手动录入。</div>
+                <div class="paper-doc-empty-title">{{ t('paper.emptyDocTitle') }}</div>
+                <div class="paper-doc-empty-desc">{{ t('paper.emptyDocDesc') }}</div>
                 <button type="button" class="paper-ai-btn" :disabled="props.recognizing" @click="emit('relayout')">
                   <Loader2 v-if="props.recognizing" :size="12" class="spin" />
                   <Sparkles v-else :size="12" />
-                  {{ props.recognizing ? '正在识别…' : 'AI识别' }}
+                  {{ props.recognizing ? t('paper.recognizing') : t('paper.aiRecognize') }}
                 </button>
               </div>
               <div v-if="props.recognizing && props.recognizeStatus" class="paper-recognize-status">
@@ -322,22 +319,22 @@ onMounted(() =>
                 @update:model-value="update"
               />
 
-              <div class="paper-divider"><span>教师参考</span></div>
+              <div class="paper-divider"><span>{{ t('paper.teacherReference') }}</span></div>
 
               <section class="paper-section">
                 <header class="paper-section-head">
-                  <h3 class="paper-section-title">参考答案</h3>
+                  <h3 class="paper-section-title">{{ t('paper.answer.title') }}</h3>
                 </header>
                 <div v-if="!compare" class="paper-answer-aside-hint">
-                  <span>{{ props.answerImage ? '答案原图已保存，当前右栏隐藏' : '答案原图在右侧栏导入与识别' }}</span>
-                  <button type="button" class="paper-link-btn" @click="compare = true">显示右栏</button>
+                  <span>{{ props.answerImage ? t('paper.answer.imageSavedHidden') : t('paper.answer.imageInAside') }}</span>
+                  <button type="button" class="paper-link-btn" @click="compare = true">{{ t('paper.answer.showAside') }}</button>
                 </div>
                 <div class="paper-answer-body" tabindex="0" @paste="onAnswerPaste">
                   <template v-if="!answerEditing">
                     <div
                       class="paper-answer-view"
                       :class="{ 'is-empty': !hasAnswerContent }"
-                      title="点击可编辑"
+                      :title="t('paper.clickToEdit')"
                       @click="answerEditing = true"
                     >
                       <div v-if="props.answerBlocks.length" class="answer-blocks">
@@ -352,19 +349,19 @@ onMounted(() =>
                               type="button"
                               class="answer-figure"
                               :style="figureStyle(block)"
-                              title="点击放大预览"
+                              :title="t('paper.clickToZoom')"
                               @click.stop="figurePreview = block"
                             />
                           </div>
                         </template>
                       </div>
                       <div v-else-if="props.answer.trim()" class="paper-richtext" v-html="answerHtml" />
-                      <span v-else class="paper-placeholder">尚未填写，可直接输入；粘贴截图会放到右侧「答案原图」</span>
+                      <span v-else class="paper-placeholder">{{ t('paper.answer.placeholder') }}</span>
                     </div>
                   </template>
                   <template v-else>
                     <div v-if="answerFigures.length" class="paper-answer-edit-note">
-                      手动编辑按纯文本保存；答案中的 {{ answerFigures.length }} 张图会保留在下方作为附图，图片与文字的原始相对位置可能改变。
+                      {{ t('paper.answer.editNote', { n: answerFigures.length }) }}
                     </div>
                     <textarea
                       ref="answerBox"
@@ -372,12 +369,12 @@ onMounted(() =>
                       :value="props.answer"
                       rows="2"
                       spellcheck="false"
-                      placeholder="尚未填写，可直接输入；粘贴截图会放到右侧「答案原图」"
+                      :placeholder="t('paper.answer.placeholder')"
                       @input="onAnswerInput"
                       @blur="answerEditing = false"
                     />
                     <div v-if="answerFigures.length" class="answer-blocks answer-blocks--editing">
-                      <div class="answer-figure-caption">答案附图</div>
+                      <div class="answer-figure-caption">{{ t('paper.answer.figuresCaption') }}</div>
                       <div
                         v-for="(figure, index) in answerFigures"
                         :key="'figure' + index"
@@ -388,7 +385,7 @@ onMounted(() =>
                           type="button"
                           class="answer-figure"
                           :style="figureStyle(figure)"
-                          title="点击放大预览"
+                          :title="t('paper.clickToZoom')"
                           @mousedown.prevent
                           @click.stop="figurePreview = figure"
                         />
@@ -400,7 +397,7 @@ onMounted(() =>
 
               <section class="paper-section">
                 <header class="paper-section-head">
-                  <h3 class="paper-section-title">知识点</h3>
+                  <h3 class="paper-section-title">{{ t('common.knowledge') }}</h3>
                   <button
                     type="button"
                     class="paper-ai-btn"
@@ -409,7 +406,7 @@ onMounted(() =>
                   >
                     <Loader2 v-if="props.aiBusy === 'knowledge'" :size="12" class="spin" />
                     <Tag v-else :size="12" />
-                    {{ props.knowledge.length ? '重新推荐' : '推荐知识点' }}
+                    {{ props.knowledge.length ? t('paper.knowledge.rerecommend') : t('paper.knowledge.recommend') }}
                   </button>
                 </header>
                 <div class="paper-knowledge">
@@ -419,22 +416,22 @@ onMounted(() =>
                       <X :size="10" />
                     </button>
                   </span>
-                  <span v-if="!props.knowledge.length" class="paper-empty">尚未标注知识点</span>
+                  <span v-if="!props.knowledge.length" class="paper-empty">{{ t('paper.knowledge.empty') }}</span>
                 </div>
                 <div class="paper-knowledge-add">
                   <input
                     v-model="knowledgeInput"
                     class="paper-knowledge-input"
-                    placeholder="输入知识点，回车添加"
+                    :placeholder="t('paper.knowledge.inputPlaceholder')"
                     @keydown.enter.prevent="addKnowledge"
                   />
-                  <button type="button" class="paper-add-btn" @click="addKnowledge">添加</button>
+                  <button type="button" class="paper-add-btn" @click="addKnowledge">{{ t('common.add') }}</button>
                 </div>
               </section>
 
               <section class="paper-section">
                 <header class="paper-section-head">
-                  <h3 class="paper-section-title">题目理解</h3>
+                  <h3 class="paper-section-title">{{ t('common.analysis') }}</h3>
                   <button
                     type="button"
                     class="paper-ai-btn"
@@ -443,18 +440,18 @@ onMounted(() =>
                   >
                     <Loader2 v-if="props.aiBusy === 'analysis'" :size="12" class="spin" />
                     <Brain v-else :size="12" />
-                    {{ props.analysis ? '重新分析' : 'AI 分析' }}
+                    {{ props.analysis ? t('paper.analysis.reanalyze') : t('paper.analysis.analyze') }}
                   </button>
                 </header>
                 <div
                   v-if="!analysisEditing"
                   class="paper-answer-view"
                   :class="{ 'is-empty': !props.analysis.trim() }"
-                  title="点击可编辑"
+                  :title="t('paper.clickToEdit')"
                   @click="analysisEditing = true"
                 >
                   <div v-if="props.analysis.trim()" class="paper-richtext" v-html="analysisHtml" />
-                  <span v-else class="paper-placeholder">尚未生成，可手动填写或点击 AI 分析</span>
+                  <span v-else class="paper-placeholder">{{ t('paper.analysis.placeholder') }}</span>
                 </div>
                 <textarea
                   v-else
@@ -463,7 +460,7 @@ onMounted(() =>
                   :value="props.analysis"
                   rows="3"
                   spellcheck="false"
-                  placeholder="尚未生成，可手动填写或点击 AI 分析"
+                  :placeholder="t('paper.analysis.placeholder')"
                   @input="onAnalysisInput"
                   @blur="analysisEditing = false"
                 />
@@ -473,15 +470,15 @@ onMounted(() =>
 
           <aside v-if="compare" class="paper-source">
             <div class="paper-source-head">
-              <span>原图裁剪</span>
-              <span class="paper-source-hint">对照校对</span>
+              <span>{{ t('paper.source.title') }}</span>
+              <span class="paper-source-hint">{{ t('paper.source.hint') }}</span>
             </div>
-            <img v-if="props.image" :src="props.image" alt="原图裁剪" />
-            <div v-else class="hint">没有原图</div>
+            <img v-if="props.image" :src="props.image" :alt="t('paper.source.title')" />
+            <div v-else class="hint">{{ t('paper.source.none') }}</div>
 
             <section class="paper-answer-block">
               <div class="paper-source-head">
-                <span>答案原图</span>
+                <span>{{ t('paper.answer.sourceImage') }}</span>
                 <div class="paper-answer-block-actions">
                   <button
                     type="button"
@@ -489,7 +486,7 @@ onMounted(() =>
                     :disabled="props.answerRecognizing"
                     @click="answerFileInput?.click()"
                   >
-                    <ImagePlus :size="12" /> {{ props.answerImage ? '替换图片' : '导入图片' }}
+                    <ImagePlus :size="12" /> {{ props.answerImage ? t('paper.answer.replaceImage') : t('paper.answer.importImage') }}
                   </button>
                   <button
                     type="button"
@@ -498,7 +495,7 @@ onMounted(() =>
                     @click="recognizeAnswer"
                   >
                     <Loader2 v-if="props.answerRecognizing" :size="12" class="spin" />
-                    <Sparkles v-else :size="12" /> AI 识别答案
+                    <Sparkles v-else :size="12" /> {{ t('paper.answer.recognize') }}
                   </button>
                 </div>
                 <input
@@ -510,7 +507,7 @@ onMounted(() =>
                 />
               </div>
               <div v-if="props.answerRecognizing" class="paper-answer-status">
-                <Loader2 :size="12" class="spin" /> 正在识别图片中的文字与公式…
+                <Loader2 :size="12" class="spin" /> {{ t('paper.answer.recognizingStatus') }}
               </div>
               <div
                 v-if="props.answerImage"
@@ -520,46 +517,60 @@ onMounted(() =>
               >
                 <img
                   :src="props.answerImage"
-                  alt="答案图片"
-                  title="点击放大预览"
+                  :alt="t('paper.answer.image')"
+                  :title="t('paper.clickToZoom')"
                   @click="answerPreview = props.answerImage"
                 />
                 <div class="paper-answer-image-bar">
-                  <span>答案图片</span>
-                  <button type="button" @click="answerPreview = props.answerImage">预览</button>
+                  <span>{{ t('paper.answer.image') }}</span>
+                  <button type="button" @click="answerPreview = props.answerImage">{{ t('paper.answer.preview') }}</button>
                   <button type="button" :disabled="props.answerRecognizing" @click="answerFileInput?.click()">
-                    替换
+                    {{ t('paper.answer.replace') }}
                   </button>
-                  <button type="button" :disabled="props.answerRecognizing" @click="removeAnswerImage">移除</button>
+                  <button type="button" :disabled="props.answerRecognizing" @click="removeAnswerImage">
+                    {{ t('paper.answer.remove') }}
+                  </button>
                 </div>
               </div>
               <div v-else class="paper-answer-empty">
-                还没有答案图片，可点「导入图片」，或在左侧答案区直接粘贴截图
+                {{ t('paper.answer.noImage') }}
               </div>
             </section>
           </aside>
         </div>
 
-        <AppModal v-if="pendingImage" title="用图片替换答案文字？" :width="440" :z-index="95" @close="pendingImage = ''">
+        <AppModal
+          v-if="pendingImage"
+          :title="t('paper.answer.replaceConfirmTitle')"
+          :width="440"
+          :z-index="95"
+          @close="pendingImage = ''"
+        >
           <template #description>
-            当前参考答案文字会被清空并替换为该图片，之后仍可点「AI 识别答案」转回文字。
+            {{ t('paper.answer.replaceConfirmDesc') }}
           </template>
           <div class="paper-answer-preview">
-            <img :src="pendingImage" alt="待替换的答案图片" />
+            <img :src="pendingImage" :alt="t('paper.answer.pendingImageAlt')" />
           </div>
           <template #actions>
-            <button class="btn" @click="pendingImage = ''">取消</button>
-            <button class="btn btn-primary" @click="confirmReplaceWithImage">替换为图片</button>
+            <button class="btn" @click="pendingImage = ''">{{ t('common.cancel') }}</button>
+            <button class="btn btn-primary" @click="confirmReplaceWithImage">{{ t('paper.answer.replaceWithImage') }}</button>
           </template>
         </AppModal>
 
-        <AppModal v-if="answerPreview" title="答案图片预览" :width="720" :z-index="95" @close="answerPreview = ''">
+        <AppModal
+          v-if="answerPreview"
+          :title="t('paper.answer.imagePreviewTitle')"
+          :width="720"
+          :z-index="95"
+          @close="answerPreview = ''"
+        >
           <div class="paper-answer-preview">
-            <img :src="answerPreview" alt="答案图片" />
+            <img :src="answerPreview" :alt="t('paper.answer.image')" />
           </div>
         </AppModal>
 
-        <AppModal v-if="figurePreview" title="答案插图预览" :width="760" :z-index="95" @close="figurePreview = null">
+        <AppModal v-if="figurePreview" :title="t('paper.answer.figurePreviewTitle')" :width="760" :z-index="95" @close="figurePreview = null">
           <div class="paper-answer-figure-preview" :style="figurePreviewStyle" />
         </AppModal>
       </div>

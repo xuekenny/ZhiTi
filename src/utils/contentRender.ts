@@ -6,6 +6,7 @@ import type { ContentDoc, ContentNode, ExportOptions, Question } from '../types'
 import { loadImage } from './image'
 import { hasContentDoc } from './layout'
 import { renderMathText } from './mathText'
+import { t } from '../i18n'
 
 const FONT_FAMILY = "'SimSun', 'Songti SC', 'Noto Serif CJK SC', 'Source Han Serif SC', serif"
 
@@ -84,7 +85,7 @@ async function waitForEditor(root: HTMLElement): Promise<boolean> {
 
 async function loadImageSafe(src: string): Promise<HTMLImageElement | null> {
   if (!src) return null
-  return withTimeout(loadImage(src), IMAGE_PREPARE_MS, '图片加载超时').catch(() => null)
+  return withTimeout(loadImage(src), IMAGE_PREPARE_MS, t('export.render.imageTimeout')).catch(() => null)
 }
 
 /** 等待图片解码；已完成的图片直接放行，异常图片最多等 5 秒 */
@@ -242,7 +243,7 @@ async function fontEmbedCss(root: HTMLElement): Promise<string> {
   const task = withTimeout(
     getFontEmbedCSS(root, { preferredFontFormat: 'woff2' }),
     FONT_EMBED_MS,
-    '公式字体加载超时'
+    t('export.render.fontEmbedTimeout')
   ).catch(() => '')
   fontCssCache.set(key, task)
   return task
@@ -286,7 +287,7 @@ export async function renderQuestionBlock(
   widthPx: number,
   baseFontPx: number
 ): Promise<RenderQuestionResult> {
-  if (!hasContentDoc(question.content)) return { canvas: null, error: '没有可排版的题目文档内容' }
+  if (!hasContentDoc(question.content)) return { canvas: null, error: t('export.render.noContent') }
 
   const sandbox = document.createElement('div')
   sandbox.style.cssText = 'position:fixed;left:-30000px;top:0;width:0;height:0;overflow:visible;z-index:-1;'
@@ -309,7 +310,7 @@ export async function renderQuestionBlock(
   let app: App | null = null
 
   try {
-    const content = await withTimeout(prepareContent(question), RENDER_TIMEOUT_MS, '题目图片准备超时').catch(
+    const content = await withTimeout(prepareContent(question), RENDER_TIMEOUT_MS, t('export.render.prepareTimeout')).catch(
       () => question.content as ContentDoc
     )
 
@@ -317,23 +318,23 @@ export async function renderQuestionBlock(
     app.mount(host)
     await nextTick()
     if (!(await waitForEditor(host))) {
-      return { canvas: null, error: '题目文档编辑器初始化失败' }
+      return { canvas: null, error: t('export.render.editorFailed') }
     }
 
     if (options.showAnswer && question.answer.trim()) {
       host.appendChild(buildAnswerSection(question.answer, baseFontPx))
     }
 
-    await withTimeout(Promise.resolve(document.fonts.ready), FONT_READY_MS, '字体加载超时').catch(() => undefined)
+    await withTimeout(Promise.resolve(document.fonts.ready), FONT_READY_MS, t('export.render.fontTimeout')).catch(() => undefined)
     await settleImages(host)
     cleanupImages(host)
     await settleImages(host)
     await nextTick()
 
-    return { canvas: await withTimeout(captureCanvas(host), RENDER_TIMEOUT_MS, '题目渲染超时') }
+    return { canvas: await withTimeout(captureCanvas(host), RENDER_TIMEOUT_MS, t('export.render.renderTimeout')) }
   } catch (error) {
     console.warn('[export] 题目文档渲染失败', question.id, error)
-    return { canvas: null, error: (error as Error).message || '未知错误' }
+    return { canvas: null, error: (error as Error).message || t('common.unknownError') }
   } finally {
     app?.unmount()
     sandbox.remove()

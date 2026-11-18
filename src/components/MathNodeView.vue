@@ -4,12 +4,14 @@ import type { NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper } from '@tiptap/vue-3'
 import katex from 'katex'
 import 'katex/contrib/mhchem'
+import { t, type MessageKey } from '../i18n'
 
 const props = defineProps<NodeViewProps>()
 
 const editing = ref(false)
 const draft = ref('')
-const error = ref('')
+/** 存文案 key 而非文本，切换语言时错误提示随之更新 */
+const error = ref<MessageKey | ''>('')
 const input = ref<HTMLTextAreaElement | null>(null)
 
 const display = computed(() => !!props.node.attrs.display)
@@ -75,11 +77,11 @@ function onWrapperClick(event: MouseEvent) {
 function commit() {
   const source = draft.value.trim()
   if (!source) {
-    error.value = '公式不能为空'
+    error.value = 'paper.math.empty'
     return
   }
   if (!check(source)) {
-    error.value = 'LaTeX 语法有误，请修正后再确定'
+    error.value = 'paper.math.invalid'
     return
   }
   props.updateAttributes({ latex: source })
@@ -120,14 +122,14 @@ function onEnter(event: KeyboardEvent) {
         @keydown.esc.prevent="cancel"
       />
       <span class="math-actions">
-        <button type="button" class="math-btn is-primary" @mousedown.prevent @click.stop="commit">确定</button>
-        <button type="button" class="math-btn" @mousedown.prevent @click.stop="cancel">取消</button>
+        <button type="button" class="math-btn is-primary" @mousedown.prevent @click.stop="commit">{{ t('paper.math.ok') }}</button>
+        <button type="button" class="math-btn" @mousedown.prevent @click.stop="cancel">{{ t('common.cancel') }}</button>
       </span>
-      <span v-if="error" class="math-error">{{ error }}</span>
+      <span v-if="error" class="math-error">{{ t(error) }}</span>
     </template>
     <template v-else>
-      <span class="math-render" title="点击修改 LaTeX" v-html="renderedHtml"></span>
-      <span v-if="failed" class="math-warning" title="LaTeX 语法可能有误">!</span>
+      <span class="math-render" :title="t('paper.math.clickToEdit')" v-html="renderedHtml"></span>
+      <span v-if="failed" class="math-warning" :title="t('paper.math.maybeInvalid')">!</span>
     </template>
   </NodeViewWrapper>
 </template>

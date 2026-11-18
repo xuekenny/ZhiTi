@@ -1,5 +1,6 @@
 import { toCanvas } from 'html-to-image'
 import { fragmentsToRegionText, type TextFragment } from './pdf'
+import { t } from '../i18n'
 import type { Region } from '../types'
 
 /** 光栅化倍率越高越清晰，内存也越大；页面缓存按最近使用保留 */
@@ -144,7 +145,7 @@ export async function renderDocxSource(bytes: ArrayBuffer): Promise<RenderedDocx
   const pages = paginate(host)
   if (!pages.length) {
     host.remove()
-    throw new Error('这个 Word 文件没有可显示的内容')
+    throw new Error(t('import.errors.docxEmpty'))
   }
 
   const rasterOrder: number[] = []

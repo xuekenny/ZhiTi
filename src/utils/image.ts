@@ -1,3 +1,5 @@
+import { t } from '../i18n'
+
 export function dataUrlToBytes(dataUrl: string): Uint8Array {
   const base64 = dataUrl.split(',')[1] ?? ''
   const binary = atob(base64)
@@ -14,7 +16,7 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('图片加载失败'))
+    img.onerror = () => reject(new Error(t('paper.image.loadFailed')))
     img.src = src
   })
 }
@@ -140,5 +142,5 @@ export function downloadBlob(blob: Blob, filename: string): void {
 }
 
 export function sanitizeFileName(name: string): string {
-  return name.replace(/[\\/:*?"<>|\r\n]/g, '_').trim() || '未命名'
+  return name.replace(/[\\/:*?"<>|\r\n]/g, '_').trim() || t('common.untitled')
 }

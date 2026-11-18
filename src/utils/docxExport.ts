@@ -3,6 +3,7 @@ import 'katex/contrib/mhchem'
 import { getFontEmbedCSS, toSvg } from 'html-to-image'
 import type { AnswerBlock, ContentNode, ExportOptions, Question } from '../types'
 import { dataUrlToBytes, loadImage, mimeOf, sanitizeFileName } from './image'
+import { t } from '../i18n'
 
 export interface DocxExportProgress {
   done: number
@@ -284,7 +285,7 @@ export async function exportDocx(
       if (!latex) return []
       const run = await mathRun(latex, true, contentWidthPx)
       if (!run) {
-        warnings.add(`公式无法导出：${latex.slice(0, 40)}`)
+        warnings.add(t('export.warning.formula', { latex: latex.slice(0, 40) }))
         return []
       }
       return [
@@ -314,7 +315,7 @@ export async function exportDocx(
         if (!latex) continue
         const run = await mathRun(latex, false, contentWidthPx)
         if (run) children.push(run)
-        else warnings.add(`公式无法导出：${latex.slice(0, 40)}`)
+        else warnings.add(t('export.warning.formula', { latex: latex.slice(0, 40) }))
       }
     }
     if (!children.length) return []
@@ -379,7 +380,7 @@ export async function exportDocx(
           } else {
             const run = await mathRun(piece.latex, piece.display, contentWidthPx)
             if (run) children.push(run)
-            else warnings.add(`答案公式无法导出：${piece.latex.slice(0, 40)}`)
+            else warnings.add(t('export.warning.answerFormula', { latex: piece.latex.slice(0, 40) }))
           }
         }
         if (children.length) paragraphs.push(new Paragraph({ children }))
@@ -454,7 +455,7 @@ export async function exportDocx(
           })
         )
       } else {
-        warnings.add(`第 ${i + 1} 题没有可导出的内容，已跳过`)
+        warnings.add(t('export.warning.noContent', { n: i + 1 }))
         onProgress?.({ done: i + 1, total: questions.length })
         continue
       }
@@ -464,8 +465,8 @@ export async function exportDocx(
     onProgress?.({ done: i + 1, total: questions.length })
   }
 
-  if (fallbackMath) warnings.add(`${fallbackMath} 个公式无法转为 Word 原生公式，已自动转为图片`)
-  if (missingImage) warnings.add(`${missingImage} 张插图缺少图片数据，已跳过`)
+  if (fallbackMath) warnings.add(t('export.warning.mathAsImage', { n: fallbackMath }))
+  if (missingImage) warnings.add(t('export.warning.missingImages', { n: missingImage }))
 
   const document = new Document({
     styles: {

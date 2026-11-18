@@ -19,6 +19,8 @@ import { toast } from '../composables/toast'
 import { guessQuestionType } from '../utils/questionType'
 import { answerTag, questionTag, subjectName } from '../utils/label'
 import type { Question, Region } from '../types'
+import { t } from '../i18n'
+import { gradeLabel, subjectLabel, typeLabel } from '../i18n/labels'
 
 const doc = shallowRef<PaperSource | null>(null)
 const loading = ref(false)
@@ -94,7 +96,7 @@ async function renderPreview() {
     if (token !== renderToken) return
     pageImage.value = canvasToDataUrl(canvas, 0.94)
   } catch {
-    if (token === renderToken) toast('页面预览渲染失败', 'error')
+    if (token === renderToken) toast(t('cut.toast.renderFailed'), 'error')
   } finally {
     if (token === renderToken) rendering.value = false
   }
@@ -126,7 +128,7 @@ async function loadDocument() {
   } catch (error) {
     if (token !== loadToken) return
     doc.value = null
-    loadError.value = (error as Error).message || '试卷载入失败'
+    loadError.value = (error as Error).message || t('cut.toast.loadFailed')
     toast(loadError.value, 'error')
   } finally {
     if (token === loadToken) loading.value = false
@@ -168,7 +170,7 @@ function onPointerUp(event: PointerEvent) {
   const box = draftBox.value
   draftBox.value = null
   if (box && (box.w < 0.02 || box.h < 0.012)) {
-    toast('框选区域过小，请重新框选', 'warning', 1800)
+    toast(t('cut.toast.boxTooSmall'), 'warning', 1800)
   } else if (box) {
     pendingBoxes.value.push(box)
   }
@@ -246,7 +248,7 @@ function clearPending() {
 }
 
 async function buildImage(regions: Region[]): Promise<string> {
-  if (!doc.value) throw new Error('文档未就绪')
+  if (!doc.value) throw new Error(t('cut.toast.docNotReady'))
   const source = doc.value
   const ordered = [...regions].sort((a, b) => a.page - b.page || a.y - b.y)
   const pageCanvases = new Map<number, HTMLCanvasElement>()
@@ -288,11 +290,11 @@ async function createFromPending() {
     const count = state.questions.filter((q) => q.paper_id === ui.activePaperId).length
     const regionCount = created.regions.length
     const label = questionTag(paper.value?.subject, count)
-    if (!created.text.trim()) toast('已生成题目。该页可能是扫描件，文本层为空，可在题库中生成题目文档', 'warning', 4200)
-    else if (regionCount > 1) toast(`已生成「${label}」，含 ${regionCount} 个区域`, 'success')
-    else toast(`已生成「${label}」`, 'success')
+    if (!created.text.trim()) toast(t('cut.toast.createdNoText'), 'warning', 4200)
+    else if (regionCount > 1) toast(t('cut.toast.createdMulti', { label, n: regionCount }), 'success')
+    else toast(t('cut.toast.created', { label }), 'success')
   } catch (error) {
-    toast('生成题目失败：' + ((error as Error).message || '未知错误'), 'error')
+    toast(t('cut.toast.createFailed', { error: (error as Error).message || t('common.unknownError') }), 'error')
   } finally {
     generating.value = false
   }
@@ -323,17 +325,17 @@ function dropPendingAnswer(id: number) {
   const index = ui.pendingAnswers.filter((answer) => answer.paperId === item.paperId).findIndex((answer) => answer.id === id) + 1
   const subject = state.papers.find((p) => p.id === item.paperId)?.subject
   removePendingAnswer(id)
-  toast(`已移除「${answerTag(subject, index)}」`, 'info', 2200)
+  toast(t('cut.toast.answerRemoved', { tag: answerTag(subject, index) }), 'info', 2200)
 }
 
 function pickAnswerTarget() {
   if (!ui.activePaperId) {
-    toast('请先选择一份试卷', 'warning')
+    toast(t('cut.toast.selectPaperFirst'), 'warning')
     return
   }
   const paperId = ui.activePaperId
   if (pendingBoxes.value.length > 1) {
-    toast('「添加答案」一次只处理一个答案区域，请只保留 1 个框选；多区域请用「创建题目」', 'warning', 3600)
+    toast(t('cut.toast.answerOneBox'), 'warning', 3600)
     return
   }
   if (pendingBoxes.value.length === 1) {
@@ -345,7 +347,7 @@ function pickAnswerTarget() {
     draftBox.value = null
     ui.view = 'bank'
     toast(
-      existing ? '该区域已是待处理答案，已设为当前答案框' : '已暂存答案区域，请在题库中选择目标题目',
+      existing ? t('cut.toast.answerAlreadyPending') : t('cut.toast.answerStashed'),
       'info',
       3600
     )
@@ -356,17 +358,17 @@ function pickAnswerTarget() {
   const fallback = [...ui.pendingAnswers].reverse().find((item) => item.paperId === paperId)
   const target = current ?? fallback
   if (!target) {
-    toast('请先在试卷上框选答案区域', 'warning', 3200)
+    toast(t('cut.toast.drawAnswerFirst'), 'warning', 3200)
     return
   }
   ui.activePendingAnswerId = target.id
   ui.view = 'bank'
-  toast('请选择要填入答案的题目', 'info', 2600)
+  toast(t('cut.toast.pickAnswerTarget'), 'info', 2600)
 }
 
 async function removeQuestion(question: Question) {
   await deleteQuestion(question.id)
-  toast('已删除该题目', 'success')
+  toast(t('cut.toast.questionDeleted'), 'success')
 }
 
 /** 点击题目列表：定位到该题第一个区域所在页，并在画布上高亮 */
@@ -453,23 +455,23 @@ onBeforeUnmount(() => {
       >
         <div v-if="!ui.activePaperId" class="empty" style="margin: auto">
           <div class="empty-icon"><Scissors :size="24" /></div>
-          <div class="empty-title">还没有选择试卷</div>
-          <div class="empty-desc">先导入一份 PDF 或 Word 试卷，再回来进行框选切割。</div>
-          <button class="btn btn-primary" style="margin-top: 6px" @click="ui.view = 'import'">去导入试卷</button>
+          <div class="empty-title">{{ t('cut.empty.noPaperTitle') }}</div>
+          <div class="empty-desc">{{ t('cut.empty.noPaperDesc') }}</div>
+          <button class="btn btn-primary" style="margin-top: 6px" @click="ui.view = 'import'">{{ t('cut.empty.goImport') }}</button>
         </div>
 
         <div v-else-if="loadError" class="empty" style="margin: auto">
-          <div class="empty-title">无法打开试卷</div>
+          <div class="empty-title">{{ t('cut.empty.openFailed') }}</div>
           <div class="empty-desc">{{ loadError }}</div>
         </div>
 
         <div v-else-if="loading" class="empty" style="margin: auto">
           <div class="empty-icon"><Loader2 :size="24" class="spin" /></div>
-          <div class="empty-title">正在加载试卷…</div>
+          <div class="empty-title">{{ t('cut.empty.loading') }}</div>
         </div>
 
         <div v-else class="page-wrap" :style="{ width: displayWidth + 'px' }">
-          <img v-if="pageImage" :src="pageImage" alt="试卷页面" draggable="false" />
+          <img v-if="pageImage" :src="pageImage" :alt="t('cut.toolbar.pageAlt')" draggable="false" />
           <div v-else class="page-skeleton"><Loader2 :size="22" class="spin" /></div>
 
           <div
@@ -506,7 +508,7 @@ onBeforeUnmount(() => {
                 height: item.region.h * 100 + '%'
               }"
             >
-              <span class="pending-label">区域 {{ item.index + 1 }}</span>
+              <span class="pending-label">{{ t('cut.canvas.region', { n: item.index + 1 }) }}</span>
             </div>
 
             <div
@@ -520,7 +522,7 @@ onBeforeUnmount(() => {
                 width: entry.item.region.w * 100 + '%',
                 height: entry.item.region.h * 100 + '%'
               }"
-              :title="`${answerTag(paper?.subject, entry.index + 1)} · 点击设为当前答案框`"
+              :title="t('cut.canvas.answerBoxTitle', { tag: answerTag(paper?.subject, entry.index + 1) })"
               @pointerdown.stop
               @click.stop="selectPendingAnswer(entry.item.id)"
             >
@@ -528,7 +530,7 @@ onBeforeUnmount(() => {
                 {{ answerTag(paper?.subject, entry.index + 1) }}
                 <button
                   class="answer-box-remove"
-                  title="移除该答案框"
+                  :title="t('cut.canvas.removeAnswerBox')"
                   @pointerdown.stop
                   @click.stop="dropPendingAnswer(entry.item.id)"
                 >
@@ -547,7 +549,7 @@ onBeforeUnmount(() => {
                 height: draftBox.h * 100 + '%'
               }"
             >
-              <span class="pending-label">新框选</span>
+              <span class="pending-label">{{ t('cut.canvas.newBox') }}</span>
             </div>
           </div>
 
@@ -556,63 +558,83 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="cut-statusbar">
-        按住拖动画框可连续圈选多个区域（可跨页），选好后点「创建题目」合成一题；框选单个答案区域后可点「添加答案」到题库中选择目标题目。已暂存的答案框会保留在画布上（虚线 · 学科+序号，如「物理1答案」），完成写入或手动取消才移除。放大后按住空格 + 左键拖动可平移画布。
+        {{ t('cut.statusbar') }}
       </div>
     </div>
 
     <aside class="inspector">
       <div class="inspector-head">
         <div>
-          <div style="font-size: 13px; font-weight: 650">切割面板</div>
-          <div class="hint">{{ paper ? `${subjectName(paper.subject)} · ${paper.grade} · ${paper.year} 年` : '未选择试卷' }}</div>
+          <div style="font-size: 13px; font-weight: 650">{{ t('cut.panel.title') }}</div>
+          <div class="hint">
+            {{
+              paper
+                ? t('cut.panel.paperMeta', {
+                    subject: subjectLabel(subjectName(paper.subject)),
+                    grade: gradeLabel(paper.grade),
+                    year: paper.year
+                  })
+                : t('cut.panel.noPaper')
+            }}
+          </div>
         </div>
-        <span class="badge badge-indigo">{{ paperQuestions.length }} 题</span>
+        <span class="badge badge-indigo">{{ t('cut.panel.questionCount', { n: paperQuestions.length }) }}</span>
       </div>
 
       <div class="card pending-card">
         <div style="font-size: 13px; font-weight: 600; margin-bottom: 4px">
-          {{ pendingBoxes.length ? `已框选 ${pendingBoxes.length} 个区域（可跨页合并）` : '尚未框选区域' }}
+          {{ pendingBoxes.length ? t('cut.pending.selected', { n: pendingBoxes.length }) : t('cut.pending.none') }}
         </div>
         <div v-if="pendingBoxes.length" class="pending-region-list">
           <div v-for="(box, i) in pendingBoxes" :key="i" class="pending-region-row">
             <span>
-              区域 {{ i + 1 }} · 第 {{ box.page }} 页 · 宽 {{ Math.round(box.w * 100) }}% · 高
-              {{ Math.round(box.h * 100) }}%
+              {{
+                t('cut.pending.regionRow', {
+                  i: i + 1,
+                  page: box.page,
+                  w: Math.round(box.w * 100),
+                  h: Math.round(box.h * 100)
+                })
+              }}
             </span>
-            <button class="btn btn-ghost btn-icon" title="移除该区域" @click="removePending(i)"><Trash2 :size="13" /></button>
+            <button class="btn btn-ghost btn-icon" :title="t('cut.pending.removeRegion')" @click="removePending(i)"><Trash2 :size="13" /></button>
           </div>
         </div>
         <div style="display: flex; gap: 7px; flex-wrap: wrap">
           <button class="btn btn-primary btn-sm" :disabled="generating || !pendingBoxes.length" @click="createFromPending">
             <Plus :size="13" />
-            {{ pendingBoxes.length > 1 ? `创建题目（${pendingBoxes.length} 个区域）` : '创建题目' }}
+            {{
+              pendingBoxes.length > 1
+                ? t('cut.pending.createQuestionMulti', { n: pendingBoxes.length })
+                : t('cut.pending.createQuestion')
+            }}
           </button>
           <button class="btn btn-sm" :disabled="generating || !answerPickReady" @click="pickAnswerTarget">
             <Sparkles :size="13" />
-            添加答案
+            {{ t('cut.pending.addAnswer') }}
           </button>
-          <button class="btn btn-ghost btn-sm" :disabled="!pendingBoxes.length" @click="clearPending">清空</button>
+          <button class="btn btn-ghost btn-sm" :disabled="!pendingBoxes.length" @click="clearPending">{{ t('common.clear') }}</button>
         </div>
         <div class="hint" style="margin-top: 8px">
           <template v-if="pendingBoxes.length > 1">
-            「添加答案」仅支持一框一题，请只保留 1 个区域；多区域请用「创建题目」。
+            {{ t('cut.pending.hintMulti') }}
           </template>
           <template v-else-if="pendingBoxes.length === 1">
-            「添加答案」会暂存该区域并跳转题库，在题库中点击目标题目即可识别写入答案。
+            {{ t('cut.pending.hintSingle') }}
           </template>
           <template v-else-if="paperPendingAnswers.length">
-            「清空」只清当前框选；已暂存的答案框会保留在画布上，点「添加答案」可带当前答案框回题库更换目标题目。
+            {{ t('cut.pending.hintHasAnswers') }}
           </template>
           <template v-else>
-            先框选区域：「创建题目」新建一题，「添加答案」暂存单个答案区域后到题库中选择目标题目。
+            {{ t('cut.pending.hintEmpty') }}
           </template>
         </div>
       </div>
 
       <div v-if="paperPendingAnswers.length" class="card answer-card">
         <div class="panel-section-title" style="margin-bottom: 6px">
-          <span>待处理答案（{{ paperPendingAnswers.length }}）</span>
-          <span class="hint">点选设为当前答案框</span>
+          <span>{{ t('cut.answers.title', { n: paperPendingAnswers.length }) }}</span>
+          <span class="hint">{{ t('cut.answers.clickToSelect') }}</span>
         </div>
         <div class="pending-region-list">
           <div
@@ -623,25 +645,27 @@ onBeforeUnmount(() => {
             @click="selectPendingAnswer(entry.item.id)"
           >
             <span class="answer-index">{{ answerTag(paper?.subject, entry.index + 1) }}</span>
-            <span class="answer-meta">第 {{ entry.item.region.page }} 页 · 宽 {{ Math.round(entry.item.region.w * 100) }}%</span>
-            <button class="btn btn-ghost btn-icon" title="移除该答案框" @click.stop="dropPendingAnswer(entry.item.id)">
+            <span class="answer-meta">{{
+              t('cut.answers.meta', { page: entry.item.region.page, w: Math.round(entry.item.region.w * 100) })
+            }}</span>
+            <button class="btn btn-ghost btn-icon" :title="t('cut.canvas.removeAnswerBox')" @click.stop="dropPendingAnswer(entry.item.id)">
               <Trash2 :size="13" />
             </button>
           </div>
         </div>
         <div class="hint" style="margin-top: 6px">
-          答案框在题库完成识别写入或点「取消」后才会移除；移除/完成后其余编号自动重排。
+          {{ t('cut.answers.footer') }}
         </div>
       </div>
 
       <div class="panel-section" style="flex: 1">
         <div class="panel-section-title">
-          <span>已切割题目</span>
-          <span class="hint">点击定位到该题区域</span>
+          <span>{{ t('cut.list.title') }}</span>
+          <span class="hint">{{ t('cut.list.hint') }}</span>
         </div>
 
         <div v-if="!paperQuestions.length" class="hint" style="padding: 18px 0; text-align: center">
-          当前试卷还没有题目。<br />用框选开始切割吧。
+          {{ t('cut.list.emptyLine1') }}<br />{{ t('cut.list.emptyLine2') }}
         </div>
 
         <div v-else class="question-list">
@@ -658,15 +682,20 @@ onBeforeUnmount(() => {
             <div style="flex: 1; min-width: 0">
               <div class="question-row-title">
                 <span>{{ questionTag(paper?.subject, index + 1) }}</span>
-                <span class="badge badge-gray" style="margin-left: 4px">{{ question.question_type }}</span>
+                <span class="badge badge-gray" style="margin-left: 4px">{{ typeLabel(question.question_type) }}</span>
               </div>
               <div class="question-row-meta">
-                第 {{ question.regions.map((r) => r.page).join('、') }} 页 · {{ question.regions.length }} 个区域 ·
-                {{ question.text ? question.text.slice(0, 24) : '无文本' }}
+                {{
+                  t('cut.list.meta', {
+                    pages: question.regions.map((r) => r.page).join(t('cut.listSep')),
+                    n: question.regions.length,
+                    text: question.text ? question.text.slice(0, 24) : t('cut.list.noText')
+                  })
+                }}
               </div>
             </div>
             <div class="question-row-actions" @click.stop>
-              <button class="btn btn-ghost btn-icon" title="删除题目" @click="removeQuestion(question)">
+              <button class="btn btn-ghost btn-icon" :title="t('cut.list.deleteQuestion')" @click="removeQuestion(question)">
                 <Trash2 :size="14" />
               </button>
             </div>
@@ -676,12 +705,12 @@ onBeforeUnmount(() => {
 
       <div class="tip-card">
         <div style="display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; margin-bottom: 6px">
-          <Layers :size="13" /> 跨页 / 多图题目
+          <Layers :size="13" /> {{ t('cut.tip.title') }}
         </div>
         <div class="hint">
-          1. 框选可连续多次，跨页时翻页继续框选；<br />
-          2. 选好后点「创建题目」，所有区域按页码顺序纵向拼接成一题；<br />
-          3. 只框选答案区域时，点「添加答案」会暂存该区域并跳转题库，在题库中点选目标题目即可识别写入答案；答案框以虚线「物理1答案」的形式保留在画布上，写入完成或取消后才移除。
+          {{ t('cut.tip.step1') }}<br />
+          {{ t('cut.tip.step2') }}<br />
+          {{ t('cut.tip.step3') }}
         </div>
       </div>
     </aside>

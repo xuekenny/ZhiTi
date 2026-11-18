@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Download, FilePlus2, Library, Scissors, Settings } from 'lucide-vue-next'
+import { Download, FilePlus2, Languages, Library, Scissors, Settings } from 'lucide-vue-next'
 import { isTauri } from '@tauri-apps/api/core'
 import ToastHost from './components/ToastHost.vue'
 import ImportView from './views/ImportView.vue'
@@ -12,6 +12,8 @@ import { initStore, PENDING_ANSWER_FLAG, state, ui, type ViewKey } from './store
 import { changeDataDir, getStorageState } from './utils/storage'
 import { toast } from './composables/toast'
 import { subjectName } from './utils/label'
+import { locale, setLocale, t } from './i18n'
+import { gradeLabel, subjectLabel } from './i18n/labels'
 import logoUrl from './assets/logo.png'
 
 const desktop = isTauri()
@@ -24,11 +26,11 @@ const views = {
   settings: SettingsView
 }
 
-const navItems: { key: ViewKey; label: string; icon: typeof FilePlus2 }[] = [
-  { key: 'import', label: '试卷导入', icon: FilePlus2 },
-  { key: 'cut', label: '题目切割', icon: Scissors },
-  { key: 'bank', label: '题库管理', icon: Library },
-  { key: 'export', label: '题目导出', icon: Download }
+const navItems: { key: Exclude<ViewKey, 'settings'>; icon: typeof FilePlus2 }[] = [
+  { key: 'import', icon: FilePlus2 },
+  { key: 'cut', icon: Scissors },
+  { key: 'bank', icon: Library },
+  { key: 'export', icon: Download }
 ]
 
 const activePaper = computed(() => state.papers.find((p) => p.id === ui.activePaperId))
@@ -36,25 +38,43 @@ const activePaper = computed(() => state.papers.find((p) => p.id === ui.activePa
 const topbar = computed<{ title: string; subtitle: string }>(() => {
   switch (ui.view) {
     case 'import':
-      return { title: '试卷导入', subtitle: '把纸质或电子试卷转化为可检索、可复用的数字题库' }
-    case 'cut':
+      return { title: t('app.nav.import'), subtitle: t('app.topbar.importSub') }
+    case 'cut': {
+      const paper = activePaper.value
       return {
-        title: activePaper.value?.title || '题目切割',
-        subtitle: activePaper.value
-          ? `${subjectName(activePaper.value.subject)} · ${activePaper.value.grade} · 共 ${activePaper.value.page_count} 页 · 已切割 ${state.questions.filter((q) => q.paper_id === activePaper.value!.id).length} 题`
-          : '请先导入一份 PDF 或 Word 试卷'
+        title: paper?.title || t('app.nav.cut'),
+        subtitle: paper
+          ? t('app.topbar.cutSub', {
+              subject: subjectLabel(subjectName(paper.subject)),
+              grade: gradeLabel(paper.grade),
+              pages: paper.page_count,
+              cut: state.questions.filter((q) => q.paper_id === paper.id).length
+            })
+          : t('app.topbar.cutEmpty')
       }
+    }
     case 'bank':
       return {
-        title: '题库管理',
-        subtitle: `共 ${state.questions.length} 道题 · 来自 ${state.papers.length} 份试卷 · 覆盖 ${new Set(state.questions.flatMap((q) => q.knowledge)).size} 个知识点`
+        title: t('app.nav.bank'),
+        subtitle: t('app.topbar.bankSub', {
+          questions: state.questions.length,
+          papers: state.papers.length,
+          knowledge: new Set(state.questions.flatMap((q) => q.knowledge)).size
+        })
       }
     case 'export':
-      return { title: '题目导出', subtitle: ui.exportIds.length ? `已选择 ${ui.exportIds.length} 道题` : '勾选需要导出的题目，选择排版格式' }
+      return {
+        title: t('app.nav.export'),
+        subtitle: ui.exportIds.length ? t('app.topbar.exportSelected', { n: ui.exportIds.length }) : t('app.topbar.exportEmpty')
+      }
     case 'settings':
-      return { title: '设置', subtitle: '配置 AI 接口与本地数据' }
+      return { title: t('app.nav.settings'), subtitle: t('app.topbar.settingsSub') }
   }
 })
+
+function toggleLocale() {
+  setLocale(locale.value === 'en' ? 'zh-CN' : 'en')
+}
 
 function badgeFor(key: ViewKey): number | string | null {
   if (key === 'bank') return state.questions.length || null
@@ -80,27 +100,27 @@ onMounted(async () => {
     if (!ui.activePaperId) ui.activePaperId = state.papers[0]?.id ?? null
     if (sessionStorage.getItem(PENDING_ANSWER_FLAG) && !ui.pendingAnswers.length) {
       sessionStorage.removeItem(PENDING_ANSWER_FLAG)
-      toast('答案区域信息已丢失（页面刷新或数据重置），请回到「题目切割」重新框选', 'warning', 6000)
+      toast(t('app.answerLost'), 'warning', 6000)
     }
   } catch (error) {
-    bootError.value = (error as Error).message || '数据库初始化失败'
-    toast('本地数据库初始化失败：' + bootError.value, 'error')
+    bootError.value = (error as Error).message || t('app.bootFailed')
+    toast(t('app.bootFailedToast', { error: bootError.value }), 'error')
   }
 })
 </script>
 
 <template>
   <div v-if="!state.ready" class="boot-screen">
-    <img class="brand-mark" :src="logoUrl" alt="知题" style="width: 46px; height: 46px" />
+    <img class="brand-mark" :src="logoUrl" :alt="t('app.brand')" style="width: 46px; height: 46px" />
     <div>
-      <div style="font-size: 16px; font-weight: 650">知题 · AI 智能题库</div>
-      <div class="hint" style="margin-top: 4px">{{ bootError || '正在加载本地题库…' }}</div>
+      <div style="font-size: 16px; font-weight: 650">{{ t('app.brand') }}</div>
+      <div class="hint" style="margin-top: 4px">{{ bootError || t('app.booting') }}</div>
     </div>
   </div>
 
   <div v-else class="app-shell">
     <aside class="sidebar">
-      <div class="nav-section-label">工作台</div>
+      <div class="nav-section-label">{{ t('app.workspace') }}</div>
       <nav>
         <button
           v-for="item in navItems"
@@ -110,15 +130,19 @@ onMounted(async () => {
           @click="go(item.key)"
         >
           <component :is="item.icon" :size="17" />
-          <span>{{ item.label }}</span>
+          <span>{{ t(`app.nav.${item.key}`) }}</span>
           <span v-if="badgeFor(item.key)" class="nav-badge">{{ badgeFor(item.key) }}</span>
         </button>
       </nav>
 
       <div class="sidebar-footer">
+        <button class="nav-item" :title="t('app.switchLanguage')" @click="toggleLocale">
+          <Languages :size="17" />
+          <span>{{ locale === 'en' ? '中文' : 'English' }}</span>
+        </button>
         <button class="nav-item" :class="{ active: ui.view === 'settings' }" @click="go('settings')">
           <Settings :size="17" />
-          <span>设置</span>
+          <span>{{ t('app.nav.settings') }}</span>
         </button>
       </div>
     </aside>
@@ -131,10 +155,10 @@ onMounted(async () => {
         </div>
         <div class="topbar-actions">
           <button v-if="ui.view !== 'import'" class="btn btn-ghost btn-sm" @click="go('import')">
-            <FilePlus2 :size="14" /> 导入新试卷
+            <FilePlus2 :size="14" /> {{ t('app.importNew') }}
           </button>
           <button v-if="ui.view === 'settings'" class="btn btn-ghost btn-sm" @click="go('bank')">
-            <Library :size="14" /> 返回题库
+            <Library :size="14" /> {{ t('app.backToBank') }}
           </button>
         </div>
       </header>
