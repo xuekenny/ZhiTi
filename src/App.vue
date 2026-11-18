@@ -136,10 +136,6 @@ onMounted(async () => {
       </nav>
 
       <div class="sidebar-footer">
-        <button class="nav-item" :title="t('app.switchLanguage')" @click="toggleLocale">
-          <Languages :size="17" />
-          <span>{{ locale === 'en' ? '中文' : 'English' }}</span>
-        </button>
         <button class="nav-item" :class="{ active: ui.view === 'settings' }" @click="go('settings')">
           <Settings :size="17" />
           <span>{{ t('app.nav.settings') }}</span>
@@ -154,6 +150,9 @@ onMounted(async () => {
           <div class="topbar-sub">{{ topbar.subtitle }}</div>
         </div>
         <div class="topbar-actions">
+          <button class="btn btn-ghost btn-sm" :title="t('app.switchLanguage')" @click="toggleLocale">
+            <Languages :size="14" /> {{ locale === 'en' ? '中文' : 'EN' }}
+          </button>
           <button v-if="ui.view !== 'import'" class="btn btn-ghost btn-sm" @click="go('import')">
             <FilePlus2 :size="14" /> {{ t('app.importNew') }}
           </button>
